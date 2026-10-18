@@ -1,6 +1,7 @@
 //! Every transport is derived from the same canonical Mac connection.
 use crate::{
     config::{MacConfig, Options},
+    connectivity::ConnectionChecks,
     runtime::{RuntimeObserver, TailnetRuntime},
     ssh_manual::{ManualConfig, ManualTransport, SshManual},
     ssh_recovery::{RecoveryConfig, SshRecovery},
@@ -13,6 +14,7 @@ pub struct Profiles {
     pub observer: Option<Arc<dyn Transport>>,
     pub manual: Option<Arc<dyn ManualTransport>>,
     pub runtime: Option<Arc<dyn RuntimeObserver>>,
+    pub connectivity: Option<Arc<ConnectionChecks>>,
     pub connection: Option<MacConfig>,
     pub errors: Vec<&'static str>,
     pub notes: Vec<&'static str>,
@@ -24,6 +26,7 @@ pub fn build(options: &Options, path: Option<&Path>) -> Profiles {
         observer: None,
         manual: None,
         runtime: None,
+        connectivity: None,
         connection: options.mac.clone(),
         errors: Vec::new(),
         notes: Vec::new(),
@@ -90,9 +93,11 @@ pub fn build(options: &Options, path: Option<&Path>) -> Profiles {
                 path,
             )
         });
+    let mut check_identities = None;
     match manual {
         Ok(manual) => {
             let identities: Arc<dyn ManualTransport> = Arc::new(manual);
+            check_identities = Some(identities.clone());
             if !mac.tailscale_host.is_empty() {
                 match TailnetRuntime::new(Arc::new(mac.clone()), identities.clone()) {
                     Ok(runtime) => result.runtime = Some(Arc::new(runtime)),
@@ -103,6 +108,10 @@ pub fn build(options: &Options, path: Option<&Path>) -> Profiles {
         }
         Err(_) => result.errors.push("Check the Mac connection's LAN host, port and username. Server identity is verified in the app; no client key or saved password is required."),
     }
+    result.connectivity = Some(Arc::new(ConnectionChecks::new(
+        Arc::new(mac.clone()),
+        check_identities,
+    )));
     if options
         .frontend_origin
         .as_ref()

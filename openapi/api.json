@@ -66,6 +66,30 @@
         ],
         "type": "object"
       },
+      "ConnectivityReport": {
+        "properties": {
+          "lan": {
+            "$ref": "#/components/schemas/EndpointCheck"
+          },
+          "nameservers": {
+            "description": "IPs only, never search domains or the complete resolver configuration.",
+            "items": {
+              "format": "ip",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "tailscale": {
+            "$ref": "#/components/schemas/EndpointCheck"
+          }
+        },
+        "required": [
+          "lan",
+          "nameservers",
+          "tailscale"
+        ],
+        "type": "object"
+      },
       "Decision": {
         "properties": {
           "state": {
@@ -78,6 +102,45 @@
         "required": [
           "state",
           "unlock_available"
+        ],
+        "type": "object"
+      },
+      "DnsCheck": {
+        "enum": [
+          "not_configured",
+          "resolved",
+          "failed",
+          "timed_out",
+          "rejected"
+        ],
+        "type": "string"
+      },
+      "EndpointCheck": {
+        "properties": {
+          "dns": {
+            "$ref": "#/components/schemas/DnsCheck"
+          },
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "format": "uint16",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "ssh": {
+            "$ref": "#/components/schemas/SshCheck"
+          },
+          "tcp": {
+            "$ref": "#/components/schemas/TcpCheck"
+          }
+        },
+        "required": [
+          "dns",
+          "host",
+          "port",
+          "ssh",
+          "tcp"
         ],
         "type": "object"
       },
@@ -174,6 +237,16 @@
           "name_unavailable",
           "timed_out",
           "stale"
+        ],
+        "type": "string"
+      },
+      "SshCheck": {
+        "enum": [
+          "not_checked",
+          "trusted",
+          "identity_needed",
+          "unavailable",
+          "timed_out"
         ],
         "type": "string"
       },
@@ -276,13 +349,22 @@
           "version"
         ],
         "type": "object"
+      },
+      "TcpCheck": {
+        "enum": [
+          "not_checked",
+          "connected",
+          "unreachable",
+          "timed_out"
+        ],
+        "type": "string"
       }
     }
   },
   "info": {
     "description": "Status suggestions, verified-phase recovery, and explicitly confirmed manual SSH authentication to pinned targets. Authentication does not certify FileVault unlock.",
     "title": "FileVault API",
-    "version": "0.1.0-alpha.4"
+    "version": "0.1.0-alpha.5"
   },
   "openapi": "3.0.3",
   "paths": {
@@ -409,6 +491,33 @@
         },
         "tags": [
           "web"
+        ]
+      }
+    },
+    "/v1/connectivity": {
+      "post": {
+        "operationId": "connectivity",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectivityReport"
+                }
+              }
+            },
+            "description": "successful operation"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Explicit same-origin ingress check. No caller-supplied target or login data.",
+        "tags": [
+          "system"
         ]
       }
     },

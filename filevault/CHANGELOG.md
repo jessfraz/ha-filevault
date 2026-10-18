@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-alpha.5
+
+- Add ingress-only connection checks for both shared-profile endpoints, with
+  separate DNS, TCP port, and SSH identity results before authentication.
+- Keep checks bounded, cancelable, and independent of password recovery and
+  boot-phase evidence. Report only resolver IPs; never change DNS or trust.
+
 ## 0.1.0-alpha.4
 
 - Match Shipments and Maintenance with transparent outlined safe icons, neutral

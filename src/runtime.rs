@@ -45,16 +45,20 @@ pub fn is_tailnet_ip(ip: IpAddr) -> bool {
 impl TailnetRuntime {
     pub fn new(mac: Arc<MacConfig>, identities: Arc<dyn ManualTransport>) -> Result<Self, Failure> {
         let host = &mac.tailscale_host;
-        let valid_name = host.len() <= 253
-            && host.ends_with(".ts.net")
-            && host
-                .bytes()
-                .all(|c| c.is_ascii_alphanumeric() || b".-".contains(&c));
-        if mac.port == 0 || !(host.parse().is_ok_and(is_tailnet_ip) || valid_name) {
+        if mac.port == 0 || !valid_tailnet_host(host) {
             return Err(Failure::Unverified);
         }
         Ok(Self { mac, identities })
     }
+}
+
+pub(crate) fn valid_tailnet_host(host: &str) -> bool {
+    host.parse().is_ok_and(is_tailnet_ip)
+        || (host.len() <= 253
+            && host.ends_with(".ts.net")
+            && host
+                .bytes()
+                .all(|c| c.is_ascii_alphanumeric() || b".-".contains(&c)))
 }
 
 impl RuntimeObserver for TailnetRuntime {

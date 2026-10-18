@@ -32,5 +32,12 @@ done
 [[ "$response" == *'"manual_ready":true'* ]]
 [[ "$response" == *'"configuration_errors":[]'* ]]
 [[ "$response" == *'FileVault preboot detection has not been learned.'* ]]
+# Measure from this isolated app container, without authentication or a host route.
+check='exec 3<>/dev/tcp/127.0.0.1/8099; printf "POST /v1/connectivity HTTP/1.1\r\nHost: localhost\r\nX-Remote-User-Id: fixture-user\r\nOrigin: https://ha.example.invalid\r\nSec-Fetch-Site: same-origin\r\nContent-Length: 0\r\nConnection: close\r\n\r\n" >&3; cat <&3'
+response=$(docker exec "$container" /bin/bash -c "$check")
+[[ "$response" == *'200 OK'* ]]
+[[ "$response" == *'"dns":"resolved","tcp":"unreachable","ssh":"not_checked"'* ]]
+[[ "$response" == *'"dns":"not_configured","tcp":"not_checked","ssh":"not_checked"'* ]]
+[[ "$response" != *'fixture-user'* ]]
 docker exec "$container" /bin/sh -c 'test "$(id -u)" -eq 10001; test "$(stat -c %a /data/credentials.json)" = 600; test "$(stat -c %a /data/ssh_known_hosts)" = 600; sha256sum --status --check /data/options.sha256; sha256sum --status --check /data/original.sha256; ! grep -Eq "manual_ssh|ssh_recovery|ssh_probe" /data/options.json; test "$(stat -c %a /data/options.json)" = 600'
 printf '%s\n' 'Legacy migration produces one Mac profile; incomplete preboot remains a setup note; authenticated UI, manual SSH and private original options preserved'

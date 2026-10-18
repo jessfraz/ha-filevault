@@ -2,6 +2,7 @@
 use filevault::{
     api::{self, Access, Context},
     config::Options,
+    connectivity::{ConnectionChecks, Resolver},
     controller::Controller,
     profiles,
     runtime::{RuntimeEvidence, RuntimeObserver},
@@ -36,6 +37,22 @@ impl server::Handler for Peer {
     }
 }
 struct Unavailable;
+struct FixtureResolver(std::net::SocketAddr);
+impl Resolver for FixtureResolver {
+    fn resolve<'a>(
+        &'a self,
+        host: &'a str,
+        _: u16,
+    ) -> FutureResult<'a, Result<Vec<std::net::SocketAddr>, Failure>> {
+        Box::pin(async move {
+            if host == "127.0.0.1" {
+                Ok(vec![self.0])
+            } else {
+                Err(Failure::Resolution)
+            }
+        })
+    }
+}
 impl RuntimeObserver for Unavailable {
     fn observe(&self) -> FutureResult<'_, Result<RuntimeEvidence, Failure>> {
         Box::pin(async { Err(Failure::Unavailable) })
@@ -79,6 +96,11 @@ async fn main() -> anyhow::Result<()> {
     }))?)?;
     let dir = tempfile::tempdir()?;
     let profiles = profiles::build(&options, Some(&dir.path().join("options.json")));
+    let checks = ConnectionChecks::with_resolver(
+        Arc::new(options.mac.as_ref().unwrap().clone()),
+        profiles.manual.clone(),
+        Arc::new(FixtureResolver(address)),
+    );
     let controller = Controller::new(
         profiles.transport,
         "https://ha.example.invalid".into(),
@@ -86,6 +108,7 @@ async fn main() -> anyhow::Result<()> {
     )
     .with_manual(profiles.manual.unwrap())
     .with_runtime(Arc::new(Unavailable))
+    .with_connectivity(Arc::new(checks))
     .with_connection(profiles.connection)
     .with_configuration_errors(profiles.errors)
     .with_configuration_notes(profiles.notes);

@@ -25,9 +25,19 @@ let failStatus = false;
 let deferred = null;
 let attempts = 0;
 let trusts = 0;
+let checks = 0;
+let checkDeferred = null;
 const target = () => ({host: "mac.example.invalid", port: 22, username: "fixture-user",
   host_key_fingerprint: "SHA256:" + "a".repeat(43), trust_status: trust, trusted: trust === "trusted"});
 globalThis.fetch = async (path, options) => {
+  if (path === "v1/connectivity") {
+    checks++;
+    assert.equal(options.method, "POST");
+    assert.equal(options.body, undefined);
+    if (checkDeferred) return checkDeferred;
+    return {ok:true,json:async()=>({lan:{host:connection.host,port:22,dns:"resolved",tcp:"connected",ssh:"identity_needed"},
+      tailscale:{host:connection.tailscale_host,port:22,dns:"failed",tcp:"not_checked",ssh:"not_checked"},nameservers:["192.0.2.53"]})};
+  }
   if (path === "v1/system") return {ok: true, json: async () => ({manual_ready: true,
     connection, configuration_errors: [], configuration_notes:["FileVault preboot detection has not been learned."]})};
   if (path === "v1/status") {
@@ -58,6 +68,15 @@ assert.equal(element("unlock").hidden, true);
 assert.equal(element("manual-ssh").hidden, false);
 assert.equal(element("shared-target").textContent,"fixture-user@mac.example.invalid:22");
 assert.equal(element("shared-runtime").textContent,"100.64.0.2:22");
+await element("check-connections").fire("click");
+assert.equal(checks,1);
+assert.match(element("check-lan").textContent,/identity needs verification/);
+assert.match(element("check-tailscale").textContent,/DNS resolution failed/);
+assert.match(element("check-resolver").textContent,/192.0.2.53/);
+assert.equal(attempts,0);
+assert.equal(trusts,0);
+assert.equal(element("recovery").open,false);
+assert.equal(element("state").textContent,"Unknown");
 await element("manual-ssh").fire("click");
 assert.equal(element("recovery").open, true);
 assert.equal(element("password").disabled, false);
@@ -139,6 +158,18 @@ assert.equal(element("recovery").open, true);
 await element("cancel-recovery").fire("click");
 
 let resolve;
+let finishCheck;
+checkDeferred = new Promise(done => {finishCheck = done;});
+const checking = element("check-connections").fire("click");
+await element("check-connections").fire("click");
+assert.equal(checks,2);
+await element("manual-ssh").fire("click");
+assert.equal(element("recovery").open,true);
+finishCheck({ok:true,json:async()=>({lan:{host:"other.example.invalid"}})});
+await checking;
+assert.match(element("connectivity-status").textContent,/canceled/);
+await element("cancel-recovery").fire("click");
+checkDeferred = null;
 deferred = new Promise((done) => { resolve = done; });
 const opening = element("manual-ssh").fire("click");
 document.hidden = true;

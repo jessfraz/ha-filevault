@@ -33,6 +33,15 @@
           <div><dt>Tailscale running check</dt><dd id="shared-runtime">Optional, not configured</dd></div></dl>
       </section>
       <p id="setup-note" class="field-help" hidden></p>
+      <section class="connectivity-card" aria-labelledby="connectivity-title">
+        <div class="connectivity-heading"><div><h3 id="connectivity-title">Connection checks</h3>
+          <p class="field-help">Check both addresses from FileVault before signing in. These checks do not unlock the Mac or remember a server identity.</p></div>
+          <button id="check-connections" class="quiet" type="button" disabled>Check connections</button></div>
+        <p id="connectivity-status" class="field-help" role="status" aria-live="polite">No connection check yet.</p>
+        <dl id="connectivity-results" hidden><div><dt>LAN</dt><dd id="check-lan"></dd></div>
+          <div><dt>Tailscale</dt><dd id="check-tailscale"></dd></div></dl>
+        <p id="check-resolver" class="field-help" hidden></p>
+      </section>
       <section id="status-card" class="recovery-card" aria-labelledby="status-title" data-state="unknown">
         <div class="status-art" aria-hidden="true"><img class="brand-light" src="brand.svg" width="108" height="108" alt=""><img class="brand-dark" src="brand-dark.svg" width="108" height="108" alt=""></div>
         <div class="status-content">

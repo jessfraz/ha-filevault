@@ -39,6 +39,9 @@ async fn main() -> Result<()> {
     if let Some(runtime) = profiles.runtime {
         controller = controller.with_runtime(runtime);
     }
+    if let Some(connectivity) = profiles.connectivity {
+        controller = controller.with_connectivity(connectivity);
+    }
     if let Some(observer) = profiles.observer {
         controller = controller.with_observer(observer);
     }

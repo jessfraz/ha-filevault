@@ -1,6 +1,6 @@
 [project]
 name = "filevault-home-assistant"
-version = "0.1.0-alpha.4"
+version = "0.1.0-alpha.5"
 description = "Read-only Home Assistant adapter for FileVault status"
 requires-python = ">=3.14.2"
 license = "MIT"

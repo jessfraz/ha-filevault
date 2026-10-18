@@ -27,17 +27,38 @@ manual host, username, port, or authentication group.
 ```json
 "mac": {
   "host": "mac.example.invalid",
-  "tailscale_host": "100.64.0.2",
+  "tailscale_host": "<machine>.<tailnet>.ts.net",
   "port": 22,
   "username": "your-account",
   "manual_enabled": true
 }
 ```
 
-Use the Mac's actual Tailscale IP or full tailnet hostname. The example is a
-placeholder. A numeric address also works when the HA app cannot resolve its
-MagicDNS name. Existing HA routing and tailnet permissions must already allow
-the connection; the app adds no membership, ACL, DNS, or network grant.
+Use the Mac's actual full tailnet hostname (or its Tailscale IP). The example is
+a placeholder; replace both angle-bracketed values. Existing HA routing, DNS,
+and tailnet permissions must already allow the connection; the app adds no
+membership, ACL, DNS, or network grant.
+
+### Check connections before signing in
+
+**Check connections** tests both configured hosts from the FileVault app's own
+network namespace. It reports DNS resolution, TCP port reachability, and SSH
+server identity separately. A DNS failure means TCP and SSH were not attempted.
+A reachable port with an unrecognized SSH key reports identity verification
+needed. It never saves that identity or sends an SSH authentication request.
+
+Checks use the same shared SSH port and the app's system resolver, with no
+alternate resolver, numeric fallback, caller-supplied target, or password.
+The two hosts are checked independently, with bounded DNS/TCP/SSH timeouts,
+at most four TCP candidates each, and one check in flight. Results and the
+app's resolver IPs are available only to authenticated same-origin ingress;
+the integration token cannot access this endpoint. These checks do not update
+the Mac's boot-phase state or replace the manual recovery confirmation flow.
+
+When a MagicDNS name fails here, inspect DNS forwarding from the app network
+namespace. A successful lookup from a different HA app does not establish the
+FileVault container's behavior. A `.local` name also depends on that namespace's
+mDNS support. Diagnose the failing layer before changing network or DNS settings.
 
 ## Manual password SSH
 

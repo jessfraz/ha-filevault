@@ -1,5 +1,6 @@
 use crate::{
     config::MacConfig,
+    connectivity::{ConnectionChecks, ConnectivityReport},
     guard::AttemptGuard,
     policy::{Decision, Evidence, State, decide},
     runtime::{RuntimeCheck, RuntimeObserver},
@@ -60,6 +61,7 @@ pub struct Controller {
     configuration_notes: Vec<&'static str>,
     connection: Option<MacConfig>,
     runtime: Option<Arc<dyn RuntimeObserver>>,
+    connectivity: Option<Arc<ConnectionChecks>>,
     inner: Arc<Mutex<Inner>>,
     preparing: Semaphore,
     origin: String,
@@ -82,6 +84,7 @@ impl Controller {
             configuration_notes: Vec::new(),
             connection: None,
             runtime: None,
+            connectivity: None,
             inner: Arc::new(Mutex::new(Inner {
                 guard: AttemptGuard::new(origin.clone(), started),
                 pending: HashMap::new(),
@@ -132,6 +135,19 @@ impl Controller {
     pub fn with_runtime(mut self, runtime: Arc<dyn RuntimeObserver>) -> Self {
         self.runtime = Some(runtime);
         self
+    }
+
+    pub fn with_connectivity(mut self, connectivity: Arc<ConnectionChecks>) -> Self {
+        self.connectivity = Some(connectivity);
+        self
+    }
+
+    pub async fn check_connections(&self) -> Result<ConnectivityReport, Failure> {
+        self.connectivity
+            .as_ref()
+            .ok_or(Failure::Unverified)?
+            .check()
+            .await
     }
 
     pub async fn observe_status(&self) -> (Decision, RuntimeCheck) {

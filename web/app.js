@@ -20,6 +20,13 @@ let epoch = 0;
 let theme = "auto";
 let hostTrusted = false;
 let sharedConnection = null;
+let checkAbort = null;
+
+function cancelChecks() {
+  if (checkAbort) byId("connectivity-status").textContent = "Connection check canceled. No login was attempted.";
+  checkAbort?.abort();
+  checkAbort = null;
+}
 
 function configuration(report) {
   const errors = Array.isArray(report?.configuration_errors)
@@ -33,6 +40,13 @@ function configuration(report) {
   const target = report?.connection;
   if (target && typeof target.host === "string" && typeof target.username === "string"
       && Number.isInteger(target.port) && typeof target.tailscale_host === "string") {
+    if (sharedConnection && (target.host !== sharedConnection.host
+        || target.tailscale_host !== sharedConnection.tailscale_host || target.port !== sharedConnection.port)) {
+      cancelChecks();
+      byId("connectivity-results").hidden = true;
+      byId("check-resolver").hidden = true;
+      byId("connectivity-status").textContent = "Connection settings changed. Check again.";
+    }
     sharedConnection = target;
     byId("shared-target").textContent = target.host
       ? `${target.username || "Set username"}@${target.host}:${target.port}` : "Not configured";
@@ -46,6 +60,56 @@ function buttons() {
   unlock.disabled = !canUnlock || pending || !!preparation;
   manual.hidden = !canManual;
   manual.disabled = !canManual || pending || !!preparation;
+  byId("check-connections").disabled = !sharedConnection || !!checkAbort || pending || !!preparation || dialog.open;
+}
+
+function endpointResult(result, host, port) {
+  if (!result || result.host !== host || result.port !== port) throw new Error("Connection changed");
+  const dns = {not_configured: "Not configured", resolved: "DNS resolved", failed: "DNS resolution failed",
+    timed_out: "DNS timed out", rejected: "Address is invalid or outside the Tailscale network"};
+  const tcp = {not_checked: "TCP not checked", connected: "TCP connected", unreachable: "TCP port unreachable", timed_out: "TCP timed out"};
+  const ssh = {not_checked: "SSH not checked", trusted: "SSH identity recognized", identity_needed: "SSH reached; server identity needs verification",
+    unavailable: "SSH identity could not be checked", timed_out: "SSH handshake timed out"};
+  if (!Object.hasOwn(dns, result.dns) || !Object.hasOwn(tcp, result.tcp) || !Object.hasOwn(ssh, result.ssh)) throw new Error("Invalid check");
+  if (result.dns !== "resolved") return dns[result.dns];
+  if (result.tcp !== "connected") return `${dns[result.dns]}; ${tcp[result.tcp]}`;
+  return `${dns[result.dns]}; ${tcp[result.tcp]}; ${ssh[result.ssh]}`;
+}
+
+async function checkConnections() {
+  if (!sharedConnection || checkAbort || pending || preparation || dialog.open || document.hidden) return;
+  const target = {...sharedConnection};
+  const abort = new AbortController();
+  checkAbort = abort;
+  buttons();
+  byId("connectivity-results").hidden = true;
+  byId("check-resolver").hidden = true;
+  byId("connectivity-status").textContent = "Checking both addresses from FileVault…";
+  const timer = setTimeout(() => abort.abort(), 12_000);
+  try {
+    const response = await fetch("v1/connectivity", {method: "POST", cache: "no-store", credentials: "same-origin", signal: abort.signal});
+    if (!response.ok) throw new Error("Check unavailable");
+    const report = await response.json();
+    if (checkAbort !== abort || document.hidden) return;
+    if (abort.signal.aborted) throw new Error("Check timed out");
+    const lan = endpointResult(report.lan, target.host, target.port);
+    const tailscale = endpointResult(report.tailscale, target.tailscale_host, target.port);
+    byId("check-lan").textContent = lan;
+    byId("check-tailscale").textContent = tailscale;
+    byId("connectivity-results").hidden = false;
+    byId("connectivity-status").textContent = `Checked ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}. No login was attempted. These results do not establish the Mac's boot phase.`;
+    const resolvers = Array.isArray(report.nameservers) ? report.nameservers : [];
+    if (resolvers.length && resolvers.length <= 3 && resolvers.every(value => typeof value === "string" && value.length <= 64)) {
+      byId("check-resolver").textContent = `FileVault DNS servers: ${resolvers.join(", ")}`;
+      byId("check-resolver").hidden = false;
+    }
+  } catch {
+    if (checkAbort === abort) byId("connectivity-status").textContent = "Connection check unavailable. No login was attempted. Check again explicitly.";
+  } finally {
+    clearTimeout(timer);
+    if (checkAbort === abort) checkAbort = null;
+    buttons();
+  }
 }
 function clearGrant() {
   preparation?.abort();
@@ -126,6 +190,10 @@ async function refresh() {
 async function prepare(selectedMode) {
   const allowed = selectedMode === "manual" ? canManual : canUnlock;
   if (!allowed || pending || preparation || document.hidden) return;
+  if (checkAbort) {
+    cancelChecks();
+    byId("connectivity-status").textContent = "Connection check canceled. No login was attempted.";
+  }
   refreshAbort?.abort();
   epoch++;
   clearGrant();
@@ -194,6 +262,7 @@ async function prepare(selectedMode) {
   }
 }
 byId("refresh").addEventListener("click", refresh);
+byId("check-connections").addEventListener("click", checkConnections);
 unlock.addEventListener("click", () => prepare("automatic"));
 manual.addEventListener("click", () => prepare("manual"));
 confirmation.addEventListener("change", () => {
@@ -267,9 +336,9 @@ byId("recovery-form").addEventListener("submit", async (event) => {
 });
 byId("cancel-recovery").addEventListener("click", clearGrant);
 dialog.addEventListener("cancel", clearGrant);
-window.addEventListener("pagehide", clearGrant);
+window.addEventListener("pagehide", () => { cancelChecks(); clearGrant(); });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) { refreshAbort?.abort(); epoch++; clearGrant(); render(null); }
+  if (document.hidden) { cancelChecks(); refreshAbort?.abort(); epoch++; clearGrant(); render(null); }
   else refresh();
 });
 byId("theme").addEventListener("click", () => {

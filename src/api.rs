@@ -1,4 +1,5 @@
 use crate::{
+    connectivity::ConnectivityReport,
     controller::{Controller, Outcome},
     policy::Decision,
     runtime::RuntimeCheck,
@@ -188,6 +189,30 @@ fn browser_user(r: &RequestContext<Arc<Context>>) -> Result<&str, HttpError> {
         return Err(deny(Status::FORBIDDEN, "browser request rejected"));
     }
     header(r, "x-remote-user-id").ok_or_else(|| deny(Status::FORBIDDEN, "access denied"))
+}
+
+/// Explicit same-origin ingress check. No caller-supplied target or login data.
+#[endpoint {method=POST,path="/v1/connectivity",tags=["system"]}]
+async fn connectivity(
+    r: RequestContext<Arc<Context>>,
+) -> Result<HttpResponseHeaders<HttpResponseOk<ConnectivityReport>>, HttpError> {
+    browser_user(&r)?;
+    let report = r
+        .context()
+        .controller
+        .check_connections()
+        .await
+        .map_err(|_| {
+            deny(
+                Status::CONFLICT,
+                "connection check unavailable or already running",
+            )
+        })?;
+    let mut response = HttpResponseHeaders::new_unnamed(HttpResponseOk(report));
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().unwrap());
+    Ok(response)
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -522,6 +547,8 @@ pub fn description() -> Result<ApiDescription<Arc<Context>>> {
     let mut api = ApiDescription::new();
     api.register(status).context("register status")?;
     api.register(system).context("register pairing metadata")?;
+    api.register(connectivity)
+        .context("register pre-authentication connectivity")?;
     api.register(prepare).context("register session")?;
     api.register(unlock).context("register attempt")?;
     api.register(prepare_manual)

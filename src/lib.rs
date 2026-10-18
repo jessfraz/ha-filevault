@@ -1,5 +1,6 @@
 pub mod api;
 pub mod config;
+pub mod connectivity;
 pub mod controller;
 pub mod credentials;
 pub mod guard;

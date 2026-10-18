@@ -249,43 +249,58 @@ async fn connect_identity(
         let stream = tokio::net::TcpStream::connect((host, port))
             .await
             .map_err(|_| Failure::Unavailable)?;
-        let peer_addr = stream.peer_addr().map_err(|_| Failure::Unavailable)?;
-        let stream = stream.into_std().map_err(|_| Failure::Unavailable)?;
-        let shutdown = ShutdownOnDrop(stream.try_clone().map_err(|_| Failure::Unavailable)?);
-        let stream = tokio::net::TcpStream::from_std(stream).map_err(|_| Failure::Unavailable)?;
-        let (epoch_tx, epoch) = tokio::sync::watch::channel(0);
-        let observed = Arc::new(std::sync::Mutex::new(None));
-        let config = client::Config {
-            inactivity_timeout: Some(Duration::from_secs(120)),
-            ..Default::default()
-        };
-        let handle = client::connect_stream(
-            Arc::new(config),
-            stream,
-            PinnedKey {
-                key,
-                observed: observed.clone(),
-                epoch: epoch_tx,
-            },
-        )
-        .await
-        .map_err(|_| Failure::Identity)?;
-        let server_key = observed
-            .lock()
-            .map_err(|_| Failure::Identity)?
-            .clone()
-            .ok_or(Failure::Identity)?;
-        Ok(Connection {
-            handle,
-            epoch,
-            _shutdown: shutdown,
-            server_key,
-            peer_addr,
-        })
+        connect_stream_identity(stream, key).await
     };
     tokio::time::timeout(Duration::from_secs(5), connection)
         .await
         .map_err(|_| Failure::Timeout)?
+}
+
+/// Continue the exact TCP connection measured by the pre-authentication check.
+/// The caller owns its timeout. No DNS lookup, reconnect, or login is performed.
+pub(crate) async fn connect_stream_candidate(
+    stream: tokio::net::TcpStream,
+) -> Result<Connection, Failure> {
+    connect_stream_identity(stream, None).await
+}
+
+async fn connect_stream_identity(
+    stream: tokio::net::TcpStream,
+    key: Option<PublicKey>,
+) -> Result<Connection, Failure> {
+    let peer_addr = stream.peer_addr().map_err(|_| Failure::Unavailable)?;
+    let stream = stream.into_std().map_err(|_| Failure::Unavailable)?;
+    let shutdown = ShutdownOnDrop(stream.try_clone().map_err(|_| Failure::Unavailable)?);
+    let stream = tokio::net::TcpStream::from_std(stream).map_err(|_| Failure::Unavailable)?;
+    let (epoch_tx, epoch) = tokio::sync::watch::channel(0);
+    let observed = Arc::new(std::sync::Mutex::new(None));
+    let config = client::Config {
+        inactivity_timeout: Some(Duration::from_secs(120)),
+        ..Default::default()
+    };
+    let handle = client::connect_stream(
+        Arc::new(config),
+        stream,
+        PinnedKey {
+            key,
+            observed: observed.clone(),
+            epoch: epoch_tx,
+        },
+    )
+    .await
+    .map_err(|_| Failure::Identity)?;
+    let server_key = observed
+        .lock()
+        .map_err(|_| Failure::Identity)?
+        .clone()
+        .ok_or(Failure::Identity)?;
+    Ok(Connection {
+        handle,
+        epoch,
+        _shutdown: shutdown,
+        server_key,
+        peer_addr,
+    })
 }
 
 struct ProbeSession {
