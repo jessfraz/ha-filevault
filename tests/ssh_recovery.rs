@@ -26,12 +26,16 @@ struct StateFixture {
     reject: bool,
     disconnect: bool,
     no_runtime: bool,
-    delay: bool,
+    hold_password: bool,
+    password_received: tokio::sync::Notify,
+    release_password: tokio::sync::Notify,
+    peer_closed: tokio::sync::Notify,
 }
 struct Peer(Arc<StateFixture>);
 impl Drop for Peer {
     fn drop(&mut self) {
         self.0.closed.fetch_add(1, Ordering::SeqCst);
+        self.0.peer_closed.notify_one();
     }
 }
 impl server::Handler for Peer {
@@ -42,8 +46,9 @@ impl server::Handler for Peer {
         password: &str,
     ) -> Result<server::Auth, Self::Error> {
         self.0.passwords.fetch_add(1, Ordering::SeqCst);
-        if self.0.delay {
-            tokio::time::sleep(Duration::from_millis(150)).await;
+        self.0.password_received.notify_one();
+        if self.0.hold_password {
+            self.0.release_password.notified().await;
         }
         if self.0.reject || user != "fixture-user" || password != "DUMMY_SENTINEL" {
             return Ok(server::Auth::reject());
@@ -287,19 +292,27 @@ async fn wrong_pin_or_runtime_phase_prevents_password_delivery() {
 #[tokio::test]
 async fn cancellation_closes_socket_and_never_retries_password() {
     let fixture = Fixture::start(StateFixture {
-        delay: true,
+        hold_password: true,
         ..Default::default()
     })
     .await;
     let transport = SshRecovery::new(fixture.config.clone()).unwrap();
     let mut session = transport.open().await.unwrap();
     session.recheck().await.unwrap();
-    assert!(
-        tokio::time::timeout(Duration::from_millis(40), session.submit(dummy()))
-            .await
-            .is_err()
-    );
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    let mut attempt = session.submit(dummy());
+    tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::select! {
+            _ = &mut attempt => panic!("held authentication completed before cancellation"),
+            _ = fixture.state.password_received.notified() => {}
+        }
+    })
+    .await
+    .expect("synthetic server received the password");
+    drop(attempt);
+    fixture.state.release_password.notify_one();
+    tokio::time::timeout(Duration::from_secs(5), fixture.state.peer_closed.notified())
+        .await
+        .expect("cancelled connection closed");
     assert_eq!(fixture.state.passwords.load(Ordering::SeqCst), 1);
     assert_eq!(fixture.state.closed.load(Ordering::SeqCst), 1);
 }
