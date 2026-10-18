@@ -9,6 +9,7 @@ pub mod profiles;
 pub mod secret;
 pub mod ssh_manual;
 pub mod ssh_recovery;
+pub mod store;
 pub mod supervisor;
 pub mod transport;
 

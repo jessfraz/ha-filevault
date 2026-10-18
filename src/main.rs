@@ -4,6 +4,7 @@ use filevault::{
     config::Config,
     controller::Controller,
     profiles,
+    store::Store,
     supervisor::Supervisor,
 };
 use sha2::{Digest, Sha256};
@@ -25,6 +26,7 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     let profiles = profiles::build(&options, config.options.as_deref());
+    let store = Store::open(&config.database).await?;
     for error in &profiles.errors {
         eprintln!("{error}");
     }
@@ -40,7 +42,8 @@ async fn main() -> Result<()> {
         controller = controller.with_runtime(runtime);
     }
     if let Some(connectivity) = profiles.connectivity {
-        controller = controller.with_connectivity(connectivity);
+        controller = controller
+            .with_connectivity(Arc::new((*connectivity).clone().with_store(store.clone())));
     }
     if let Some(observer) = profiles.observer {
         controller = controller.with_observer(observer);
@@ -85,7 +88,7 @@ async fn main() -> Result<()> {
                         peer: config.ingress_peer,
                         users: options.allowed_user_ids.into_iter().collect(),
                     },
-                    controller,
+                    controller: controller.clone(),
                 }),
             )
         })
@@ -113,11 +116,13 @@ async fn main() -> Result<()> {
             .await
             .map_err(|_| anyhow::anyhow!("close ingress listener"))?;
     }
+    controller.drain_connections().await;
     let _ = stop.send(true);
     if let Some(pairing) = pairing {
         pairing
             .await
             .map_err(|_| anyhow::anyhow!("close app discovery"))?;
     }
+    store.close().await?;
     Ok(())
 }

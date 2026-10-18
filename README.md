@@ -55,6 +55,28 @@ app's resolver IPs are available only to authenticated same-origin ingress;
 the integration token cannot access this endpoint. These checks do not update
 the Mac's boot-phase state or replace the manual recovery confirmation flow.
 
+Connection checks persist in SQLite under `/data/filevault.sqlite3` in the app,
+using the same SQLx, embedded migration, WAL, and transactional-write pattern
+as Shipments and Maintenance. Outside the app, `--database` or
+`FILEVAULT_DATABASE` selects the path. Up to 1,000 runs are retained for 30 days;
+cleanup runs at startup and when checks are recorded. The ingress-only history
+API returns matching endpoint settings, newest first, with keyset pagination.
+Last SSH reached and last identity verified cover retained history only.
+Changing either endpoint or the shared port selects a separate history.
+
+Saved records contain server timestamps, sequence, run state, DNS/TCP/SSH
+outcomes, fixed error categories, and a configuration hash. They contain no
+hostnames, IP addresses, usernames, passwords, tokens, host keys, resolver
+configuration, or raw diagnostics. Interrupted runs remain interrupted after
+restart. An accepted check finishes and saves its bounded result if the browser
+stops waiting; it never authenticates or retries a login.
+
+Following Shipments' installation section, Connection checks move below the
+main controls only while all configured endpoints have recognized SSH
+identities and successful DNS/TCP checks less than 30 seconds old. Failed,
+unknown, stale, and never-run checks stay prominent. Saved history is labeled
+historical and never supplies the observation that reports Running.
+
 When a MagicDNS name fails here, inspect DNS forwarding from the app network
 namespace. A successful lookup from a different HA app does not establish the
 FileVault container's behavior. A `.local` name also depends on that namespace's
@@ -71,7 +93,7 @@ a working button flow, not an instruction to copy a key into another setting.
 
 Server identity verification is different from client-key authentication.
 Manual login uses one ephemeral password and does not require a client key.
-Only public server identities persist in owner-only /data/ssh_known_hosts.
+Public server identities persist in owner-only /data/ssh_known_hosts.
 You can verify the identity and cancel before entering any password; automatic
 checks can then use that trusted identity without a login password.
 

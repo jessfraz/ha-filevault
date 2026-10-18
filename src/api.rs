@@ -5,17 +5,18 @@ use crate::{
     runtime::RuntimeCheck,
     secret::Secret,
     ssh_manual::ManualTarget,
+    store::HistoryPage,
     transport::Disabled,
 };
 use anyhow::{Context as _, Result};
 use dropshot::{
     ApiDescription, Body, ClientErrorStatusCode as Status, ConfigDropshot, HttpError,
-    HttpResponseHeaders, HttpResponseOk, HttpServer, HttpServerStarter, RequestContext,
+    HttpResponseHeaders, HttpResponseOk, HttpServer, HttpServerStarter, Query, RequestContext,
     UntypedBody, endpoint,
 };
 use http::Response;
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
@@ -209,6 +210,44 @@ async fn connectivity(
             )
         })?;
     let mut response = HttpResponseHeaders::new_unnamed(HttpResponseOk(report));
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().unwrap());
+    Ok(response)
+}
+
+#[derive(Deserialize, JsonSchema)]
+struct HistoryQuery {
+    before: Option<i64>,
+    limit: Option<u32>,
+}
+#[derive(Serialize, JsonSchema)]
+struct ConnectionHistoryReport {
+    connection: Option<ConnectionSummary>,
+    #[serde(flatten)]
+    page: HistoryPage,
+}
+#[endpoint {method=GET,path="/v1/connectivity/history",tags=["system"]}]
+async fn connection_history(
+    r: RequestContext<Arc<Context>>,
+    query: Query<HistoryQuery>,
+) -> Result<HttpResponseHeaders<HttpResponseOk<ConnectionHistoryReport>>, HttpError> {
+    web_access(&r)?;
+    let query = query.into_inner();
+    let limit = query.limit.unwrap_or(20);
+    if !(1..=100).contains(&limit) || query.before.is_some_and(|n| n <= 0) {
+        return Err(deny(Status::BAD_REQUEST, "invalid history page"));
+    }
+    let page = r
+        .context()
+        .controller
+        .connection_history(query.before, limit)
+        .await
+        .map_err(|_| HttpError::for_internal_error("connection history unavailable".into()))?;
+    let mut response = HttpResponseHeaders::new_unnamed(HttpResponseOk(ConnectionHistoryReport {
+        connection: connection_summary(&r),
+        page,
+    }));
     response
         .headers_mut()
         .insert("cache-control", "no-store".parse().unwrap());
@@ -549,6 +588,8 @@ pub fn description() -> Result<ApiDescription<Arc<Context>>> {
     api.register(system).context("register pairing metadata")?;
     api.register(connectivity)
         .context("register pre-authentication connectivity")?;
+    api.register(connection_history)
+        .context("register connection history")?;
     api.register(prepare).context("register session")?;
     api.register(unlock).context("register attempt")?;
     api.register(prepare_manual)

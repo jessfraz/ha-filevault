@@ -138,6 +138,11 @@ input[type="password"] { width: 100%; border: 1px solid var(--line); border-radi
 .connectivity-card dl div + div { margin-top: 12px; }
 .connectivity-card dt { font-weight: 600; }
 .connectivity-card dd { margin: 3px 0 0; color: var(--muted); }
+.check-history { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 16px; font-size: 12px; }
+.check-history summary { cursor: pointer; font-weight: 600; }
+.check-history ol { list-style: none; padding: 0; }
+.check-history li { border-top: 1px solid var(--line); padding: 14px 0; line-height: 1.7; }
+.check-history li p { margin: 4px 0 0; color: var(--muted); }
 @media (max-width: 640px) { .connectivity-heading { align-items: stretch; flex-direction: column; gap: 14px; } }
 #host-trust { padding: 0 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
 #host-trust button { background: var(--action); color: var(--on-action); }

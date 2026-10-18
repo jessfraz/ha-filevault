@@ -95,12 +95,29 @@ async fn main() -> anyhow::Result<()> {
         "automatic":{"enabled":true}
     }))?)?;
     let dir = tempfile::tempdir()?;
+    let store = filevault::store::Store::open(&dir.path().join("checks.sqlite3")).await?;
+    if std::env::args().any(|arg| arg == "--seed-success") {
+        use filevault::connectivity::{DnsCheck, EndpointCheck, SshCheck, TcpCheck};
+        // Explicit synthetic history for layout/freshness tests. This never
+        // supplies runtime evidence or connects to a tailnet address.
+        let mac = options.mac.as_ref().unwrap();
+        let result = EndpointCheck {
+            host: mac.host.clone(),
+            port: mac.port,
+            dns: DnsCheck::Resolved,
+            tcp: TcpCheck::Connected,
+            ssh: SshCheck::Trusted,
+        };
+        let sequence = store.begin(mac).await?;
+        store.finish(sequence, &result, &result).await?;
+    }
     let profiles = profiles::build(&options, Some(&dir.path().join("options.json")));
     let checks = ConnectionChecks::with_resolver(
         Arc::new(options.mac.as_ref().unwrap().clone()),
         profiles.manual.clone(),
         Arc::new(FixtureResolver(address)),
-    );
+    )
+    .with_store(store.clone());
     let controller = Controller::new(
         profiles.transport,
         "https://ha.example.invalid".into(),
@@ -112,6 +129,7 @@ async fn main() -> anyhow::Result<()> {
     .with_connection(profiles.connection)
     .with_configuration_errors(profiles.errors)
     .with_configuration_notes(profiles.notes);
+    let controller = Arc::new(controller);
     let server = api::start(
         "127.0.0.1:0".parse()?,
         Arc::new(Context::with_controller(
@@ -119,7 +137,7 @@ async fn main() -> anyhow::Result<()> {
                 peer: "127.0.0.1".parse()?,
                 users: ["fixture-user".into()].into(),
             },
-            Arc::new(controller),
+            controller.clone(),
         )),
     )?;
     println!(
@@ -129,6 +147,8 @@ async fn main() -> anyhow::Result<()> {
     tokio::signal::ctrl_c().await?;
     listener.abort();
     server.close().await.map_err(anyhow::Error::msg)?;
+    controller.drain_connections().await;
+    store.close().await?;
     println!(
         "{}",
         serde_json::json!({"synthetic_password_attempts":passwords.load(Ordering::SeqCst)})

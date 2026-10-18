@@ -22,7 +22,7 @@ export function presentation(report) {
       statusState = "unknown";
     } else if (report?.runtime_check === "name_unavailable") {
       label = "Tailscale name unavailable";
-      explanation = "The Mac's Tailscale name could not be resolved. Use its numeric Tailscale address in the shared Mac connection. Manual LAN SSH remains available.";
+      explanation = "FileVault could not resolve the Mac's Tailscale name. Check Home Assistant's internal DNS forwarding to the Tailscale app's MagicDNS proxy. Keep the Mac's full tailnet hostname in the shared connection. Manual LAN SSH remains available.";
       statusState = "unknown";
     }
   }
@@ -34,4 +34,14 @@ export function presentation(report) {
       && report?.decision?.unlock_available === true
       && report?.transport_ready === true,
   };
+}
+
+export const CHECK_FRESHNESS_SECONDS = 30;
+export function connectionChecksPassed(run, connection, now = Date.now() / 1000) {
+  if (!connection?.host || run?.state !== "complete" || !Number.isSafeInteger(run.finished_at)
+      || run.finished_at > now || now - run.finished_at >= CHECK_FRESHNESS_SECONDS) return false;
+  return ["lan", ...(connection.tailscale_host ? ["tailscale"] : [])].every(key => {
+    const result = run[key];
+    return result?.dns === "resolved" && result.tcp === "connected" && result.ssh === "trusted" && !result.error;
+  });
 }

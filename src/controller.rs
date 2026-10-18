@@ -6,6 +6,7 @@ use crate::{
     runtime::{RuntimeCheck, RuntimeObserver},
     secret::Secret,
     ssh_manual::{ManualTarget, ManualTransport},
+    store::HistoryPage,
     transport::{Failure, Session, Transport},
 };
 use std::{
@@ -148,6 +149,22 @@ impl Controller {
             .ok_or(Failure::Unverified)?
             .check()
             .await
+    }
+    pub async fn connection_history(
+        &self,
+        before: Option<i64>,
+        limit: u32,
+    ) -> Result<HistoryPage, Failure> {
+        self.connectivity
+            .as_ref()
+            .ok_or(Failure::Unavailable)?
+            .history(before, limit)
+            .await
+    }
+    pub async fn drain_connections(&self) {
+        if let Some(checks) = &self.connectivity {
+            checks.drain().await;
+        }
     }
 
     pub async fn observe_status(&self) -> (Decision, RuntimeCheck) {

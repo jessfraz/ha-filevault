@@ -8,10 +8,14 @@ docker run --rm --read-only --network none --user 10001:10001 "$image" --version
 
 # Exercise actual HA options and credential bootstrap on ephemeral RAM only.
 container=
+volume=
 cleanup() {
     if [[ -n "$container" ]]; then
         docker stop --time 5 "$container" >/dev/null 2>&1 || true
         docker rm "$container" >/dev/null 2>&1 || true
+    fi
+    if [[ -n "$volume" ]]; then
+        docker volume rm "$volume" >/dev/null 2>&1 || true
     fi
 }
 trap cleanup EXIT
@@ -41,3 +45,42 @@ response=$(docker exec "$container" /bin/bash -c "$check")
 [[ "$response" != *'fixture-user'* ]]
 docker exec "$container" /bin/sh -c 'test "$(id -u)" -eq 10001; test "$(stat -c %a /data/credentials.json)" = 600; test "$(stat -c %a /data/ssh_known_hosts)" = 600; sha256sum --status --check /data/options.sha256; sha256sum --status --check /data/original.sha256; ! grep -Eq "manual_ssh|ssh_recovery|ssh_probe" /data/options.json; test "$(stat -c %a /data/options.json)" = 600'
 printf '%s\n' 'Legacy migration produces one Mac profile; incomplete preboot remains a setup note; authenticated UI, manual SSH and private original options preserved'
+
+# A disposable volume exercises process restart persistence on both native
+# architectures. It contains only synthetic configuration and check outcomes.
+docker stop --time 5 "$container" >/dev/null
+docker rm "$container" >/dev/null
+container=
+volume=$(docker volume create)
+options='{"allowed_user_ids":["fixture-user"],"frontend_origin":"https://ha.example.invalid","mac":{"host":"192.0.2.1","port":22,"username":"fixture-user","tailscale_host":""}}'
+container=$(docker run --detach --read-only --network none \
+    --mount "type=volume,src=$volume,dst=/data" --entrypoint /bin/sh \
+    "$image" -c 'umask 077; printf "%s" "$1" > /data/options.json; exec /usr/local/bin/docker-entrypoint.sh --ingress-bind 127.0.0.1:8099 --ingress-peer 127.0.0.1' sh "$options")
+ready() {
+    for _ in {1..30}; do
+        if response=$(docker exec "$container" /bin/bash -c "$probe" 2>/dev/null); then
+            [[ "$response" == *'200 OK'* ]] && return 0
+        fi
+        sleep 0.2
+    done
+    return 1
+}
+history='exec 3<>/dev/tcp/127.0.0.1/8099; printf "GET /v1/connectivity/history HTTP/1.1\r\nHost: localhost\r\nX-Remote-User-Id: fixture-user\r\nConnection: close\r\n\r\n" >&3; cat <&3'
+ready
+response=$(docker exec "$container" /bin/bash -c "$history")
+[[ "$response" == *'"results":[]'* ]]
+response=$(docker exec "$container" /bin/bash -c "$check")
+[[ "$response" == *'200 OK'* && "$response" == *'"sequence":1'* ]]
+docker stop --time 10 "$container" >/dev/null
+docker start "$container" >/dev/null
+ready
+response=$(docker exec "$container" /bin/bash -c "$history")
+[[ "$response" == *'200 OK'* && "$response" == *'"sequence":1'* ]]
+[[ "$response" != *'"sequence":2'* ]]
+response=$(docker exec "$container" /bin/bash -c "$check")
+[[ "$response" == *'200 OK'* && "$response" == *'"sequence":2'* ]]
+response=$(docker exec "$container" /bin/bash -c "$history")
+[[ "$response" == *'"sequence":2'* && "$response" == *'"sequence":1'* ]]
+[[ "$response" == *'"error":"tcp_unreachable"'* ]]
+docker exec "$container" /bin/sh -c 'test "$(stat -c %a /data/filevault.sqlite3)" = 600; ! grep -aEq "fixture-user|192[.]0[.]2[.]1|example[.]invalid" /data/filevault.sqlite3'
+printf '%s\n' 'SQLite history survives process restart, retains successive checks, has owner-only permissions and stores no target or account identifiers'

@@ -19,7 +19,8 @@ once. manual_enabled preserves the choice to permit manual requests.
 
 Optionally set tailscale_host to this same Mac's actual Tailscale IP or full
 MagicDNS hostname. It uses the same SSH port and trusted server identity store.
-A numeric Tailscale IP avoids a dependency on working MagicDNS inside the app.
+Keep the full tailnet hostname when using MagicDNS. If name lookup fails,
+verify Home Assistant's internal DNS forwarding to the Tailscale app's proxy.
 No tailnet credentials or permissions are added. The app container needs an
 existing route to that address; a host-level successful probe is insufficient
 to establish container reachability.
@@ -29,6 +30,24 @@ origin without a path or trailing slash. Never enter a login password, private
 key, or SSH client-key credential into app options.
 
 ## Connect with SSH
+
+Connection checks save bounded history in `/data/filevault.sqlite3`, using
+SQLite migrations and WAL like Shipments and Maintenance. Saved history shows
+the latest checks and last successful SSH/identity observations for the current
+endpoint settings, up to 1,000 runs for 30 days. It contains no credentials,
+target addresses, host keys, resolver configuration, or raw errors. Include
+managed app data in the normal Home Assistant backup.
+
+Checks stay above the main controls until all configured endpoints pass DNS,
+TCP, and trusted SSH identity checks. Successful checks move below the controls
+for 30 seconds; stale results return to the top. You can rerun them in either
+position. History never supplies current Running evidence. A browser that
+stops waiting does not cancel an accepted check; its bounded result is saved.
+
+Click outside the password dialog or press Escape to dismiss an unsubmitted
+attempt. The unsent password clears and focus returns to the opening control.
+While a submitted operation is in progress, dismissal waits for its result;
+there is no cancellation or retry disguised as closing the dialog.
 
 Open the app and choose Connect with SSH. The displayed LAN account comes from
 the same Mac profile shown above status. A new or changed server identity needs

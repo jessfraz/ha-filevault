@@ -36,7 +36,7 @@ before password entry. A changed identity is never silently accepted or
 replaced. Users must verify its displayed fingerprint through a trusted source.
 An explicitly provisioned normal-runtime public identity can bootstrap trust.
 
-Only public server identities persist in owner-only /data/ssh_known_hosts.
+Public server identities persist in owner-only /data/ssh_known_hosts.
 The app uses standard known_hosts records, an append-only explicit trust step,
 readback, bounded file size/identities, and regular-file/permission checks.
 A new connection always checks its identity against remembered trust. Any rekey
@@ -94,6 +94,16 @@ Require exact HTTPS Origin, same-origin Fetch Metadata, no query payload,
 bounded body size, nonce/session/user binding, expiry, and atomic consumption.
 The read-only integration token cannot open the UI, remember identities, create
 an SSH grant, or submit a password.
+
+Connection history is ingress-only and never accessible with the integration
+token. SQLite stores only timestamps, sequence, run state, endpoint outcome
+enums, fixed error categories, and a hash of endpoint configuration. No target
+names, login names, credentials, host keys, resolver configuration, or raw
+diagnostics enter the database. History is capped at 1,000 runs and 30 days,
+filtered to matching endpoint settings, and never consumed by runtime policy.
+Accepted checks finish independently of the HTTP waiter and drain before
+SQLite shutdown. Restart marks incomplete records interrupted; it never
+replays a check or trusts a server. All checks remain pre-authentication.
 
 The controller bounds pending grants, serializes preparation, permits one
 in-flight attempt, and applies 60-second startup/attempt cooldowns. Connection

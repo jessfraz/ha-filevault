@@ -1,4 +1,4 @@
-import { presentation } from "./policy.js";
+import { presentation, connectionChecksPassed, CHECK_FRESHNESS_SECONDS } from "./policy.js";
 import { submitOnce } from "./recovery.js";
 
 const byId = (id) => document.getElementById(id);
@@ -21,11 +21,120 @@ let theme = "auto";
 let hostTrusted = false;
 let sharedConnection = null;
 let checkAbort = null;
+let historyAbort = null;
+let historyBefore = null;
+let lastRun = null;
+let freshnessTimer = null;
+let dialogOpener = null;
+let backdropPointer = false;
+let checkFailed = false;
+
+function sameConnection(a, b) {
+  return a && b && a.host === b.host && a.port === b.port && a.tailscale_host === b.tailscale_host;
+}
+function placeChecks() {
+  clearTimeout(freshnessTimer);
+  const passed = !checkAbort && !checkFailed && connectionChecksPassed(lastRun, sharedConnection);
+  const card = byId("connection-checks");
+  const parent = byId(passed ? "checks-bottom" : "checks-top");
+  if (card.parentElement !== parent) {
+    const focused = document.activeElement;
+    const restore = focused && card.contains(focused);
+    parent.insertBefore(card, null);
+    if (restore) focused.focus({preventScroll:true});
+  }
+  card.dataset.checks = passed ? "passed" : "attention";
+  if (!checkFailed && lastRun?.finished_at) {
+    const age = Date.now() / 1000 - lastRun.finished_at;
+    if (age >= CHECK_FRESHNESS_SECONDS || age < 0) {
+      byId("connectivity-status").textContent = `Saved check from ${dateLabel(lastRun.finished_at)} is stale. Check again for current connection results. Saved results do not establish Running.`;
+    } else {
+      freshnessTimer = setTimeout(placeChecks, (CHECK_FRESHNESS_SECONDS - age) * 1000 + 10);
+      freshnessTimer.unref?.();
+    }
+  }
+}
+function dateLabel(seconds) {
+  return Number.isSafeInteger(seconds) && seconds > 0 ? new Date(seconds * 1000).toLocaleString() : "never";
+}
+function historyRunValid(run) {
+  return Number.isSafeInteger(run?.sequence) && run.sequence > 0
+    && Number.isSafeInteger(run.started_at) && run.started_at > 0
+    && (run.finished_at === null || (Number.isSafeInteger(run.finished_at) && run.finished_at >= run.started_at))
+    && ["checking", "complete", "interrupted"].includes(run.state);
+}
+async function loadHistory(append = false) {
+  if (!sharedConnection || document.hidden || (append && !historyBefore)) return;
+  historyAbort?.abort();
+  const abort = new AbortController();
+  historyAbort = abort;
+  const target = {...sharedConnection};
+  const timer = setTimeout(() => abort.abort(), 10_000);
+  byId("history-more").disabled = true;
+  try {
+    const response = await fetch(`v1/connectivity/history${append ? `?before=${historyBefore}` : ""}`, {
+      cache: "no-store", credentials: "same-origin", signal: abort.signal,
+    });
+    if (!response.ok) throw new Error("History unavailable");
+    const page = await response.json();
+    if (historyAbort !== abort || abort.signal.aborted || !sameConnection(target, sharedConnection)) return;
+    if (!sameConnection(target, page.connection) || !Array.isArray(page.results)
+        || page.results.length > 100 || !page.results.every(historyRunValid)) throw new Error("Invalid history");
+    const rows = page.results.map(run => {
+      const row = document.createElement("li");
+      const title = document.createElement("strong");
+      title.textContent = `${dateLabel(run.started_at)} · ${run.state === "checking" ? "In progress" : run.state === "interrupted" ? "Interrupted by app restart" : "Saved result"}`;
+      row.append(title);
+      for (const [key, label, host] of [["lan", "LAN", target.host], ["tailscale", "Tailscale", target.tailscale_host]]) {
+        const description = document.createElement("p");
+        description.textContent = `${label}: ${endpointResult({...run[key], host, port: target.port}, host, target.port)}`;
+        row.append(description);
+      }
+      return row;
+    });
+    if (!append) {
+      byId("history-list").replaceChildren();
+      lastRun = page.results[0] ?? null;
+      if (lastRun) {
+        byId("check-lan").textContent = endpointResult({...lastRun.lan,host:target.host,port:target.port},target.host,target.port);
+        byId("check-tailscale").textContent = endpointResult({...lastRun.tailscale,host:target.tailscale_host,port:target.port},target.tailscale_host,target.port);
+        byId("connectivity-results").hidden = false;
+      } else byId("connectivity-results").hidden = true;
+      if (!checkFailed) {
+        if (lastRun) byId("connectivity-status").textContent = `Last checked ${dateLabel(lastRun.finished_at ?? lastRun.started_at)}. Saved connection results do not establish the Mac's current boot phase.`;
+        else byId("connectivity-status").textContent = "No saved connection check for these settings. Check connections to begin.";
+      }
+      const success = page.last_success;
+      byId("history-last-success").textContent = ["lan", "tailscale"].map(key => {
+        const result = success?.[key];
+        return `${key === "lan" ? "LAN" : "Tailscale"}: last SSH reached ${dateLabel(result?.reachable_at)}, last identity verified ${dateLabel(result?.verified_at)}`;
+      }).join(". ") + ". Within retained history only.";
+    }
+    byId("history-list").append(...rows);
+    historyBefore = Number.isSafeInteger(page.next) && page.next > 0 ? page.next : null;
+    byId("history-more").hidden = !historyBefore;
+    byId("history-status").textContent = "Historical results only. Up to 1,000 checks for 30 days; only matching endpoint settings are shown. No login credentials or raw diagnostic messages are saved.";
+    placeChecks();
+  } catch {
+    if (historyAbort === abort) {
+      byId("history-status").textContent = "Saved history unavailable. Check again explicitly; recovery remains available when configured.";
+      if (!append) { lastRun = null; byId("history-list").replaceChildren(); placeChecks(); }
+    }
+  } finally {
+    clearTimeout(timer);
+    if (historyAbort === abort) historyAbort = null;
+    byId("history-more").disabled = false;
+  }
+}
 
 function cancelChecks() {
-  if (checkAbort) byId("connectivity-status").textContent = "Connection check canceled. No login was attempted.";
+  if (checkAbort) {
+    checkFailed = true;
+    byId("connectivity-status").textContent = "Stopped waiting for the connection check. An accepted check can finish and save its result. No login was attempted.";
+  }
   checkAbort?.abort();
   checkAbort = null;
+  placeChecks();
 }
 
 function configuration(report) {
@@ -38,6 +147,22 @@ function configuration(report) {
   byId("setup-note").textContent = notes.join(" ");
   byId("setup-note").hidden = !notes.length;
   const target = report?.connection;
+  if (report && Object.hasOwn(report, "connection") && target === null) {
+    cancelChecks();
+    sharedConnection = null;
+    historyAbort?.abort();
+    historyBefore = null;
+    lastRun = null;
+    byId("shared-target").textContent = "Not configured";
+    byId("shared-runtime").textContent = "Optional, not configured";
+    byId("history-list").replaceChildren();
+    byId("history-last-success").textContent = "";
+    byId("history-more").hidden = true;
+    byId("history-status").textContent = "Configure the Mac connection to see matching history.";
+    byId("connectivity-results").hidden = true;
+    byId("check-resolver").hidden = true;
+    placeChecks();
+  }
   if (target && typeof target.host === "string" && typeof target.username === "string"
       && Number.isInteger(target.port) && typeof target.tailscale_host === "string") {
     if (sharedConnection && (target.host !== sharedConnection.host
@@ -46,12 +171,20 @@ function configuration(report) {
       byId("connectivity-results").hidden = true;
       byId("check-resolver").hidden = true;
       byId("connectivity-status").textContent = "Connection settings changed. Check again.";
+      historyAbort?.abort();
+      historyBefore = null;
+      lastRun = null;
+      checkFailed = false;
+      byId("history-list").replaceChildren();
+      byId("history-last-success").textContent = "";
+      byId("history-more").hidden = true;
     }
     sharedConnection = target;
     byId("shared-target").textContent = target.host
       ? `${target.username || "Set username"}@${target.host}:${target.port}` : "Not configured";
     byId("shared-runtime").textContent = target.tailscale_host
       ? `${target.tailscale_host}:${target.port}` : "Optional, not configured";
+    placeChecks();
   }
 }
 
@@ -61,11 +194,12 @@ function buttons() {
   manual.hidden = !canManual;
   manual.disabled = !canManual || pending || !!preparation;
   byId("check-connections").disabled = !sharedConnection || !!checkAbort || pending || !!preparation || dialog.open;
+  byId("cancel-recovery").disabled = pending;
 }
 
 function endpointResult(result, host, port) {
   if (!result || result.host !== host || result.port !== port) throw new Error("Connection changed");
-  const dns = {not_configured: "Not configured", resolved: "DNS resolved", failed: "DNS resolution failed",
+  const dns = {not_checked: "DNS not checked", not_configured: "Not configured", resolved: "DNS resolved", failed: "DNS resolution failed",
     timed_out: "DNS timed out", rejected: "Address is invalid or outside the Tailscale network"};
   const tcp = {not_checked: "TCP not checked", connected: "TCP connected", unreachable: "TCP port unreachable", timed_out: "TCP timed out"};
   const ssh = {not_checked: "SSH not checked", trusted: "SSH identity recognized", identity_needed: "SSH reached; server identity needs verification",
@@ -81,6 +215,9 @@ async function checkConnections() {
   const target = {...sharedConnection};
   const abort = new AbortController();
   checkAbort = abort;
+  checkFailed = false;
+  lastRun = null;
+  placeChecks();
   buttons();
   byId("connectivity-results").hidden = true;
   byId("check-resolver").hidden = true;
@@ -97,6 +234,7 @@ async function checkConnections() {
     byId("check-lan").textContent = lan;
     byId("check-tailscale").textContent = tailscale;
     byId("connectivity-results").hidden = false;
+    if (historyRunValid(report.run)) lastRun = report.run;
     byId("connectivity-status").textContent = `Checked ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}. No login was attempted. These results do not establish the Mac's boot phase.`;
     const resolvers = Array.isArray(report.nameservers) ? report.nameservers : [];
     if (resolvers.length && resolvers.length <= 3 && resolvers.every(value => typeof value === "string" && value.length <= 64)) {
@@ -104,14 +242,21 @@ async function checkConnections() {
       byId("check-resolver").hidden = false;
     }
   } catch {
-    if (checkAbort === abort) byId("connectivity-status").textContent = "Connection check unavailable. No login was attempted. Check again explicitly.";
+    if (checkAbort === abort) {
+      checkFailed = true;
+      byId("connectivity-status").textContent = "Connection check unavailable. An accepted check may still finish and save its result. No login was attempted. Check again explicitly.";
+    }
   } finally {
     clearTimeout(timer);
     if (checkAbort === abort) checkAbort = null;
     buttons();
+    placeChecks();
+    await loadHistory();
   }
 }
 function clearGrant() {
+  const wasOpen = dialog.open;
+  const opener = dialogOpener;
   preparation?.abort();
   preparation = null;
   nonce = null;
@@ -123,7 +268,14 @@ function clearGrant() {
   password.disabled = false;
   clearTimeout(expiry);
   if (dialog.open) dialog.close();
+  backdropPointer = false;
   buttons();
+  if (wasOpen) {
+    dialogOpener = null;
+    if (!document.hidden && opener) {
+      ((!opener.hidden && !opener.disabled) ? opener : byId("refresh")).focus();
+    }
+  }
 }
 function render(report) {
   const view = presentation(report);
@@ -185,6 +337,7 @@ async function refresh() {
     clearTimeout(timer);
     if (refreshAbort === abort) refreshAbort = null;
     refreshing = false;
+    await loadHistory();
   }
 }
 async function prepare(selectedMode) {
@@ -192,11 +345,12 @@ async function prepare(selectedMode) {
   if (!allowed || pending || preparation || document.hidden) return;
   if (checkAbort) {
     cancelChecks();
-    byId("connectivity-status").textContent = "Connection check canceled. No login was attempted.";
+    byId("connectivity-status").textContent = "Stopped waiting for the connection check. An accepted check can finish and save its result. No login was attempted.";
   }
   refreshAbort?.abort();
   epoch++;
   clearGrant();
+  dialogOpener = selectedMode === "manual" ? manual : unlock;
   const abort = new AbortController();
   preparation = abort;
   mode = selectedMode;
@@ -263,6 +417,7 @@ async function prepare(selectedMode) {
 }
 byId("refresh").addEventListener("click", refresh);
 byId("check-connections").addEventListener("click", checkConnections);
+byId("history-more").addEventListener("click", () => loadHistory(true));
 unlock.addEventListener("click", () => prepare("automatic"));
 manual.addEventListener("click", () => prepare("manual"));
 confirmation.addEventListener("change", () => {
@@ -320,8 +475,8 @@ byId("recovery-form").addEventListener("submit", async (event) => {
   buttons();
   byId("submit-recovery").disabled = true;
   const outcome = await submitOnce(password, grant, fetch, selectedMode);
-  clearGrant();
   pending = false;
+  clearGrant();
   render(null);
   const notices = {
     running: "The verified normal SSH runtime is reachable. Check required applications separately.",
@@ -334,11 +489,31 @@ byId("recovery-form").addEventListener("submit", async (event) => {
   };
   byId("notice").textContent = notices[outcome];
 });
-byId("cancel-recovery").addEventListener("click", clearGrant);
-dialog.addEventListener("cancel", clearGrant);
-window.addEventListener("pagehide", () => { cancelChecks(); clearGrant(); });
+function dismissRecovery() {
+  password.value = "";
+  if (pending) {
+    byId("recovery-status").textContent = "The submitted operation is in progress. Wait for its result; no retry will be made.";
+    return;
+  }
+  clearGrant();
+}
+function outsideDialog(event) {
+  if (event.target !== dialog || !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return false;
+  const box = dialog.getBoundingClientRect();
+  return event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom;
+}
+byId("cancel-recovery").addEventListener("click", dismissRecovery);
+dialog.addEventListener("cancel", event => { event.preventDefault(); dismissRecovery(); });
+dialog.addEventListener("pointerdown", event => { backdropPointer = outsideDialog(event); });
+dialog.addEventListener("pointercancel", () => { backdropPointer = false; });
+dialog.addEventListener("click", event => {
+  const dismiss = backdropPointer && outsideDialog(event);
+  backdropPointer = false;
+  if (dismiss) dismissRecovery();
+});
+window.addEventListener("pagehide", () => { cancelChecks(); historyAbort?.abort(); clearGrant(); });
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) { cancelChecks(); refreshAbort?.abort(); epoch++; clearGrant(); render(null); }
+  if (document.hidden) { cancelChecks(); historyAbort?.abort(); refreshAbort?.abort(); epoch++; clearGrant(); render(null); }
   else refresh();
 });
 byId("theme").addEventListener("click", () => {

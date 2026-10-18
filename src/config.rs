@@ -17,6 +17,8 @@ pub struct Config {
     pub ingress_bind: Option<SocketAddr>,
     #[arg(long, env = "FILEVAULT_INGRESS_PEER", default_value = "172.30.32.2")]
     pub ingress_peer: IpAddr,
+    #[arg(long, env = "FILEVAULT_DATABASE", default_value = "filevault.sqlite3")]
+    pub database: PathBuf,
     #[arg(long)]
     pub options: Option<PathBuf>,
     #[arg(long)]

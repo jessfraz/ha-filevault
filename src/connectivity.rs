@@ -3,10 +3,11 @@ use crate::{
     config::MacConfig,
     runtime::{is_tailnet_ip, valid_tailnet_host},
     ssh_manual::ManualTransport,
+    store::{ConnectionRun, HistoryPage, Store, connection_fingerprint},
     transport::{Failure, FutureResult, connect_stream_candidate},
 };
 use schemars::JsonSchema;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::{
     net::{IpAddr, SocketAddr},
     sync::Arc,
@@ -19,16 +20,17 @@ const TCP_LIMIT: Duration = Duration::from_secs(1);
 const SSH_LIMIT: Duration = Duration::from_secs(3);
 const MAX_ADDRESSES: usize = 4;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DnsCheck {
+    NotChecked,
     NotConfigured,
     Resolved,
     Failed,
     TimedOut,
     Rejected,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TcpCheck {
     NotChecked,
@@ -36,7 +38,7 @@ pub enum TcpCheck {
     Unreachable,
     TimedOut,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SshCheck {
     NotChecked,
@@ -60,6 +62,7 @@ pub struct ConnectivityReport {
     pub tailscale: EndpointCheck,
     /// IPs only, never search domains or the complete resolver configuration.
     pub nameservers: Vec<IpAddr>,
+    pub run: Option<ConnectionRun>,
 }
 
 pub trait Resolver: Send + Sync {
@@ -85,11 +88,13 @@ impl Resolver for SystemResolver {
     }
 }
 
+#[derive(Clone)]
 pub struct ConnectionChecks {
     mac: Arc<MacConfig>,
     identities: Option<Arc<dyn ManualTransport>>,
     resolver: Arc<dyn Resolver>,
-    in_flight: Semaphore,
+    in_flight: Arc<Semaphore>,
+    store: Option<Store>,
 }
 impl ConnectionChecks {
     pub fn new(mac: Arc<MacConfig>, identities: Option<Arc<dyn ManualTransport>>) -> Self {
@@ -104,24 +109,70 @@ impl ConnectionChecks {
             mac,
             identities,
             resolver,
-            in_flight: Semaphore::new(1),
+            in_flight: Arc::new(Semaphore::new(1)),
+            store: None,
         }
     }
+    pub fn with_store(mut self, store: Store) -> Self {
+        self.store = Some(store);
+        self
+    }
+    pub async fn history(&self, before: Option<i64>, limit: u32) -> Result<HistoryPage, Failure> {
+        self.store
+            .as_ref()
+            .ok_or(Failure::Unavailable)?
+            .history(&connection_fingerprint(&self.mac), before, limit)
+            .await
+            .map_err(|_| Failure::Unavailable)
+    }
+    pub async fn drain(&self) {
+        // Listeners have stopped admitting requests before shutdown reaches us.
+        let _permit = self.in_flight.acquire().await;
+    }
     pub async fn check(&self) -> Result<ConnectivityReport, Failure> {
-        // No queued probes or shared recovery locks. Dropping a request cancels
-        // its probes and closes any in-progress SSH socket.
-        let _permit = self
+        // No queued probes or shared recovery locks. An accepted check finishes
+        // and records its bounded probes even if the browser stops waiting.
+        let permit = self
             .in_flight
-            .try_acquire()
+            .clone()
+            .try_acquire_owned()
             .map_err(|_| Failure::Unavailable)?;
+        let checks = self.clone();
+        tokio::spawn(async move {
+            let _permit = permit;
+            checks.run().await
+        })
+        .await
+        .map_err(|_| Failure::Unavailable)?
+    }
+    async fn run(&self) -> Result<ConnectivityReport, Failure> {
+        let sequence = match &self.store {
+            Some(store) => Some(
+                store
+                    .begin(&self.mac)
+                    .await
+                    .map_err(|_| Failure::Unavailable)?,
+            ),
+            None => None,
+        };
         let (lan, tailscale) = tokio::join!(
             self.endpoint(&self.mac.host, false),
             self.endpoint(&self.mac.tailscale_host, true),
         );
+        let run = match (&self.store, sequence) {
+            (Some(store), Some(sequence)) => Some(
+                store
+                    .finish(sequence, &lan, &tailscale)
+                    .await
+                    .map_err(|_| Failure::Unavailable)?,
+            ),
+            _ => None,
+        };
         Ok(ConnectivityReport {
             lan,
             tailscale,
             nameservers: resolver_nameservers(),
+            run,
         })
     }
     async fn endpoint(&self, host: &str, tailnet: bool) -> EndpointCheck {

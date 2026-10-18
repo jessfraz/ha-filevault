@@ -28,6 +28,7 @@ async fn incomplete_phase_profile_keeps_the_real_app_and_manual_ui_available() {
     drop(socket);
     let mut process = Process(
         Command::new(env!("CARGO_BIN_EXE_filevault"))
+            .current_dir(dir.path())
             .args([
                 "--options",
                 path.to_str().unwrap(),

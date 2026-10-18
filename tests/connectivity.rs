@@ -172,7 +172,7 @@ impl Resolver for PendingResolver {
     }
 }
 #[tokio::test(start_paused = true)]
-async fn dns_timeout_and_concurrent_requests_are_bounded_and_recover_after_cancellation() {
+async fn dns_timeout_and_concurrent_requests_are_bounded_after_browser_cancellation() {
     let checks = Arc::new(ConnectionChecks::with_resolver(
         mac(22),
         None,
@@ -184,6 +184,8 @@ async fn dns_timeout_and_concurrent_requests_are_bounded_and_recover_after_cance
     assert!(checks.check().await.is_err());
     running.abort();
     let _ = running.await;
+    assert!(checks.check().await.is_err());
+    checks.drain().await;
     let report = checks.check().await.unwrap();
     assert_eq!(report.lan.dns, DnsCheck::TimedOut);
     assert_eq!(report.tailscale.dns, DnsCheck::TimedOut);
@@ -201,7 +203,7 @@ impl Resolver for TailnetResolver {
     }
 }
 #[tokio::test]
-async fn tailnet_name_cannot_dial_a_lan_answer_and_cancel_closes_the_measured_socket() {
+async fn tailnet_name_cannot_dial_a_lan_answer_and_detached_check_closes_its_socket() {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
     let checks = Arc::new(ConnectionChecks::with_resolver(
@@ -215,7 +217,7 @@ async fn tailnet_name_cannot_dial_a_lan_answer_and_cancel_closes_the_measured_so
     running.abort();
     let _ = running.await;
     let mut bytes = Vec::new();
-    tokio::time::timeout(Duration::from_secs(1), stream.read_to_end(&mut bytes))
+    tokio::time::timeout(Duration::from_secs(4), stream.read_to_end(&mut bytes))
         .await
         .unwrap()
         .unwrap();
@@ -262,17 +264,21 @@ async fn endpoint_requires_ingress_origin_and_fixed_config_and_does_not_change_s
         addresses: vec![],
         calls: AtomicUsize::new(0),
     });
+    let dir = tempfile::tempdir().unwrap();
+    let store = filevault::store::Store::open(&dir.path().join("history.sqlite3"))
+        .await
+        .unwrap();
     let controller = Arc::new(
         Controller::new(
             Arc::new(Disabled),
             "https://ha.example.invalid".into(),
             Instant::now(),
         )
-        .with_connectivity(Arc::new(ConnectionChecks::with_resolver(
-            mac(22),
-            None,
-            resolver.clone(),
-        ))),
+        .with_connection(Some((*mac(22)).clone()))
+        .with_connectivity(Arc::new(
+            ConnectionChecks::with_resolver(mac(22), None, resolver.clone())
+                .with_store(store.clone()),
+        )),
     );
     let integration = api::start(
         "127.0.0.1:0".parse().unwrap(),
@@ -332,6 +338,33 @@ async fn endpoint_requires_ingress_origin_and_fixed_config_and_does_not_change_s
         );
     }
     assert_eq!(resolver.calls.load(Ordering::SeqCst), 0);
+    let history_url = format!("http://{}/v1/connectivity/history", ingress.local_addr());
+    assert_eq!(client.get(&history_url).send().await.unwrap().status(), 403);
+    assert_eq!(
+        client
+            .get(format!(
+                "http://{}/v1/connectivity/history",
+                integration.local_addr()
+            ))
+            .bearer_auth("fixture-status")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    let before = client
+        .get(&history_url)
+        .header("x-remote-user-id", "fixture-user")
+        .send()
+        .await
+        .unwrap();
+    assert!(
+        before.json::<serde_json::Value>().await.unwrap()["results"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
     let response = request(
         format!("http://{}/v1/connectivity", ingress.local_addr()),
         "https://ha.example.invalid",
@@ -345,10 +378,60 @@ async fn endpoint_requires_ingress_origin_and_fixed_config_and_does_not_change_s
     assert_eq!(body["lan"]["dns"], "failed");
     assert_eq!(body["tailscale"]["dns"], "failed");
     assert!(!body.to_string().contains("fixture-user"));
+    let history = client
+        .get(&history_url)
+        .header("x-remote-user-id", "fixture-user")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(history.headers()["cache-control"], "no-store");
+    let history: serde_json::Value = history.json().await.unwrap();
+    assert_eq!(history["results"].as_array().unwrap().len(), 1);
+    assert_eq!(history["results"][0]["lan"]["error"], "dns_failed");
+    assert!(history["results"][0]["lan"].get("host").is_none());
     assert_eq!(
         controller.status().await.state,
         filevault::policy::State::Unknown
     );
     integration.close().await.unwrap();
     ingress.close().await.unwrap();
+    controller.drain_connections().await;
+    store.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn accepted_check_is_saved_after_the_http_waiter_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = filevault::store::Store::open(&dir.path().join("history.sqlite3"))
+        .await
+        .unwrap();
+    let checks = Arc::new(
+        ConnectionChecks::with_resolver(mac(22), None, Arc::new(PendingResolver))
+            .with_store(store.clone()),
+    );
+    let sample = checks.clone();
+    let waiting = tokio::spawn(async move { sample.check().await });
+    tokio::time::timeout(Duration::from_secs(1), async {
+        loop {
+            if !checks.history(None, 20).await.unwrap().results.is_empty() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    waiting.abort();
+    let _ = waiting.await;
+    tokio::time::timeout(Duration::from_secs(3), checks.drain())
+        .await
+        .unwrap();
+    let history = checks.history(None, 20).await.unwrap();
+    assert_eq!(history.results.len(), 1);
+    assert!(matches!(
+        history.results[0].state,
+        filevault::store::RunState::Complete
+    ));
+    assert_eq!(history.results[0].lan.dns, DnsCheck::TimedOut);
+    store.close().await.unwrap();
 }

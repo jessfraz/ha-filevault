@@ -41,6 +41,96 @@
         ],
         "type": "object"
       },
+      "CheckError": {
+        "enum": [
+          "dns_failed",
+          "dns_timed_out",
+          "invalid_address",
+          "tcp_unreachable",
+          "tcp_timed_out",
+          "ssh_unavailable",
+          "ssh_timed_out",
+          "interrupted"
+        ],
+        "type": "string"
+      },
+      "ConnectionHistoryReport": {
+        "properties": {
+          "connection": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionSummary"
+              }
+            ],
+            "nullable": true
+          },
+          "last_success": {
+            "$ref": "#/components/schemas/EndpointSuccesses"
+          },
+          "next": {
+            "format": "int64",
+            "nullable": true,
+            "type": "integer"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionRun"
+            },
+            "type": "array"
+          },
+          "retention_days": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "retention_runs": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "last_success",
+          "results",
+          "retention_days",
+          "retention_runs"
+        ],
+        "type": "object"
+      },
+      "ConnectionRun": {
+        "properties": {
+          "finished_at": {
+            "format": "int64",
+            "nullable": true,
+            "type": "integer"
+          },
+          "lan": {
+            "$ref": "#/components/schemas/EndpointObservation"
+          },
+          "sequence": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "started_at": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "state": {
+            "$ref": "#/components/schemas/RunState"
+          },
+          "tailscale": {
+            "$ref": "#/components/schemas/EndpointObservation"
+          }
+        },
+        "required": [
+          "lan",
+          "sequence",
+          "started_at",
+          "state",
+          "tailscale"
+        ],
+        "type": "object"
+      },
       "ConnectionSummary": {
         "properties": {
           "host": {
@@ -79,6 +169,14 @@
             },
             "type": "array"
           },
+          "run": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionRun"
+              }
+            ],
+            "nullable": true
+          },
           "tailscale": {
             "$ref": "#/components/schemas/EndpointCheck"
           }
@@ -107,6 +205,7 @@
       },
       "DnsCheck": {
         "enum": [
+          "not_checked",
           "not_configured",
           "resolved",
           "failed",
@@ -144,6 +243,50 @@
         ],
         "type": "object"
       },
+      "EndpointObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "dns": {
+            "$ref": "#/components/schemas/DnsCheck"
+          },
+          "error": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CheckError"
+              }
+            ],
+            "description": "A fixed category only. Never an OS, DNS, SSH or authentication message.",
+            "nullable": true
+          },
+          "ssh": {
+            "$ref": "#/components/schemas/SshCheck"
+          },
+          "tcp": {
+            "$ref": "#/components/schemas/TcpCheck"
+          }
+        },
+        "required": [
+          "dns",
+          "ssh",
+          "tcp"
+        ],
+        "type": "object"
+      },
+      "EndpointSuccesses": {
+        "properties": {
+          "lan": {
+            "$ref": "#/components/schemas/LastSuccess"
+          },
+          "tailscale": {
+            "$ref": "#/components/schemas/LastSuccess"
+          }
+        },
+        "required": [
+          "lan",
+          "tailscale"
+        ],
+        "type": "object"
+      },
       "Error": {
         "description": "Error information from a response.",
         "properties": {
@@ -161,6 +304,23 @@
           "message",
           "request_id"
         ],
+        "type": "object"
+      },
+      "LastSuccess": {
+        "properties": {
+          "reachable_at": {
+            "description": "An SSH handshake succeeded, including identities awaiting confirmation.",
+            "format": "int64",
+            "nullable": true,
+            "type": "integer"
+          },
+          "verified_at": {
+            "description": "The observed server identity matched the existing trust store.",
+            "format": "int64",
+            "nullable": true,
+            "type": "integer"
+          }
+        },
         "type": "object"
       },
       "ManualChallengeReport": {
@@ -227,6 +387,14 @@
           "trusted"
         ],
         "type": "object"
+      },
+      "RunState": {
+        "enum": [
+          "checking",
+          "complete",
+          "interrupted"
+        ],
+        "type": "string"
       },
       "RuntimeCheck": {
         "enum": [
@@ -364,7 +532,7 @@
   "info": {
     "description": "Status suggestions, verified-phase recovery, and explicitly confirmed manual SSH authentication to pinned targets. Authentication does not certify FileVault unlock.",
     "title": "FileVault API",
-    "version": "0.1.0-alpha.5"
+    "version": "0.1.0-alpha.6"
   },
   "openapi": "3.0.3",
   "paths": {
@@ -516,6 +684,53 @@
           }
         },
         "summary": "Explicit same-origin ingress check. No caller-supplied target or login data.",
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/v1/connectivity/history": {
+      "get": {
+        "operationId": "connection_history",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "format": "int64",
+              "nullable": true,
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "format": "uint32",
+              "minimum": 0,
+              "nullable": true,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectionHistoryReport"
+                }
+              }
+            },
+            "description": "successful operation"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
         "tags": [
           "system"
         ]

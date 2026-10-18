@@ -91,6 +91,7 @@ fn migration_command_is_private_idempotent_and_preserves_original_options() {
     let original = br#"{"allowed_user_ids":["fixture-user"],"manual_ssh":{"enabled":true,"host":"mac.example.invalid","port":22,"username":"fixture-user"}}"#;
     std::fs::write(&input, original).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_filevault"))
+        .current_dir(dir.path())
         .args([
             "--migrate-options",
             input.to_str().unwrap(),
@@ -100,6 +101,7 @@ fn migration_command_is_private_idempotent_and_preserves_original_options() {
         .output()
         .unwrap();
     assert!(result.status.success());
+    assert!(!dir.path().join("filevault.sqlite3").exists());
     assert!(!String::from_utf8_lossy(&result.stdout).contains("mac.example.invalid"));
     assert_eq!(std::fs::read(&input).unwrap(), original);
     assert_eq!(
