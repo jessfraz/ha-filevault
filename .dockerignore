@@ -1,0 +1,14 @@
+.git
+.venv
+.direnv
+target
+work
+review
+tests
+tests_ha
+tests_web
+*.log
+.env
+.env.*
+options.json
+credentials.json

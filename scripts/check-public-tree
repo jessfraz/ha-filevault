@@ -1,0 +1,37 @@
+#!/usr/bin/env python3
+"""Check source artifacts; private deployment files and history need review."""
+
+from pathlib import Path
+import os
+import re
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+SKIP = {".git", "target", ".venv", ".direnv", "__pycache__", ".pytest_cache", ".ruff_cache", "work", "review"}
+BAD_NAMES = {"options.json", "credentials.json", "known_hosts", ".env"}
+PATTERNS = [
+    re.compile(rb"-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----"),
+    re.compile(rb"(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})"),
+    re.compile(rb"/Users/[A-Za-z0-9_-]+/"),
+    re.compile(rb"[A-Za-z0-9_.-]+\.ts\.net"),
+]
+bad = []
+for directory, folders, files in os.walk(ROOT, followlinks=False):
+    folders[:] = [name for name in folders if name not in SKIP]
+    for name in folders + files:
+        path = Path(directory) / name
+        rel = path.relative_to(ROOT)
+        if path.is_symlink():
+            bad.append(str(rel) + ": symlink")
+            continue
+        if not path.is_file():
+            continue
+        if path.name in BAD_NAMES or path.suffix in {".log", ".sqlite", ".sqlite3", ".db", ".pem", ".key"}:
+            bad.append(str(rel) + ": private artifact type")
+        data = path.read_bytes()
+        if any(pattern.search(data) for pattern in PATTERNS):
+            bad.append(str(rel) + ": sensitive-looking content")
+if bad:
+    print("\n".join(bad), file=sys.stderr)
+    raise SystemExit(1)
+print("Source boundary checks passed. Review staged files and any future history before publishing.")

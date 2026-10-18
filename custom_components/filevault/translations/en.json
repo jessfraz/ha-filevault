@@ -1,0 +1,27 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect FileVault status",
+        "description": "Use a read-only service credential. Never enter a Mac password here.",
+        "data": {
+          "backend_url": "Backend origin",
+          "token": "Read-only status token"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot read the status service"
+    },
+    "abort": {
+      "single_instance_allowed": "Only one instance is supported"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "status": {
+        "name": "FileVault status"
+      }
+    }
+  }
+}

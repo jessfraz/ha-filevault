@@ -1,0 +1,4 @@
+configuration:
+  allowed_user_ids:
+    name: Allowed Home Assistant users
+    description: Explicit user IDs allowed to open the status UI. Empty denies access.

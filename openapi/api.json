@@ -1,0 +1,335 @@
+{
+  "components": {
+    "responses": {
+      "Error": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        },
+        "description": "Error"
+      }
+    },
+    "schemas": {
+      "AttemptReport": {
+        "properties": {
+          "outcome": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "outcome"
+        ],
+        "type": "object"
+      },
+      "ChallengeReport": {
+        "properties": {
+          "expires_in": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nonce": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "expires_in",
+          "nonce"
+        ],
+        "type": "object"
+      },
+      "Decision": {
+        "properties": {
+          "state": {
+            "$ref": "#/components/schemas/State"
+          },
+          "unlock_available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "state",
+          "unlock_available"
+        ],
+        "type": "object"
+      },
+      "Error": {
+        "description": "Error information from a response.",
+        "properties": {
+          "error_code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "request_id"
+        ],
+        "type": "object"
+      },
+      "State": {
+        "enum": [
+          "running",
+          "verified_preboot",
+          "unreachable",
+          "unknown"
+        ],
+        "type": "string"
+      },
+      "StatusReport": {
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/Decision"
+          },
+          "transport_ready": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision",
+          "transport_ready",
+          "version"
+        ],
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Status and bounded ephemeral recovery requests. Real unlock disabled until verified preboot transport is available.",
+    "title": "FileVault API",
+    "version": "0.0.0"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "index",
+        "responses": {
+          "default": {
+            "content": {
+              "*/*": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "web"
+        ]
+      }
+    },
+    "/app.js": {
+      "get": {
+        "operationId": "script",
+        "responses": {
+          "default": {
+            "content": {
+              "*/*": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "web"
+        ]
+      }
+    },
+    "/brand.svg": {
+      "get": {
+        "operationId": "brand",
+        "responses": {
+          "default": {
+            "content": {
+              "*/*": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "web"
+        ]
+      }
+    },
+    "/policy.js": {
+      "get": {
+        "operationId": "script_policy",
+        "responses": {
+          "default": {
+            "content": {
+              "*/*": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "web"
+        ]
+      }
+    },
+    "/recovery.js": {
+      "get": {
+        "operationId": "script_recovery",
+        "responses": {
+          "default": {
+            "content": {
+              "*/*": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "web"
+        ]
+      }
+    },
+    "/style.css": {
+      "get": {
+        "operationId": "style",
+        "responses": {
+          "default": {
+            "content": {
+              "*/*": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "web"
+        ]
+      }
+    },
+    "/v1/session": {
+      "post": {
+        "operationId": "prepare",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChallengeReport"
+                }
+              }
+            },
+            "description": "successful operation"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "tags": [
+          "recovery"
+        ]
+      }
+    },
+    "/v1/status": {
+      "get": {
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StatusReport"
+                }
+              }
+            },
+            "description": "successful operation"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/v1/unlock": {
+      "post": {
+        "operationId": "unlock",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttemptReport"
+                }
+              }
+            },
+            "description": "successful operation"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "tags": [
+          "recovery"
+        ]
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "recovery"
+    },
+    {
+      "name": "system"
+    },
+    {
+      "name": "web"
+    }
+  ]
+}

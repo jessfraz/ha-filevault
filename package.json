@@ -1,0 +1,6 @@
+{
+  "name": "ha-filevault-web-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {"test": "node tests_web/policy.mjs"}
+}

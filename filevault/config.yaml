@@ -1,0 +1,22 @@
+name: FileVault
+version: "0.0.0"
+slug: filevault
+description: FileVault recovery status for Home Assistant (development prototype)
+url: https://github.com/jessfraz/ha-filevault
+arch:
+  - amd64
+  - aarch64
+startup: application
+boot: manual
+init: false
+ingress: true
+ingress_port: 8099
+panel_admin: true
+panel_icon: mdi:lock-open-outline
+environment:
+  FILEVAULT_ENABLE_INGRESS: "true"
+options:
+  allowed_user_ids: []
+schema:
+  allowed_user_ids:
+    - str

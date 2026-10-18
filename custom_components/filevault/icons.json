@@ -1,0 +1,15 @@
+{
+  "entity": {
+    "sensor": {
+      "status": {
+        "default": "mdi:safe-square-outline",
+        "state": {
+          "running": "mdi:desktop-mac",
+          "verified_preboot": "mdi:lock-outline",
+          "unreachable": "mdi:lan-disconnect",
+          "unknown": "mdi:help-circle-outline"
+        }
+      }
+    }
+  }
+}

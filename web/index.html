@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <base href="__FILEVAULT_BASE__">
+    <title>FileVault</title>
+    <link rel="icon" href="brand.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="style.css">
+    <script src="app.js" type="module"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <a class="wordmark" href="./" aria-label="FileVault home">
+        <img src="brand.svg" width="30" height="30" alt="">
+        FileVault
+      </a>
+      <span class="build-tag">Development</span>
+    </header>
+    <main class="recovery-layout">
+      <div class="page-heading">
+        <div><p class="eyebrow">ON-DEMAND RECOVERY</p><h1>Mac recovery</h1></div>
+        <button id="refresh" class="quiet" type="button">Refresh status</button>
+      </div>
+      <p id="notice" class="notice" role="status" aria-live="polite"></p>
+      <section class="recovery-card" aria-labelledby="status-title">
+        <div class="status-art" aria-hidden="true"><img src="brand.svg" width="108" height="108" alt=""></div>
+        <div class="status-content">
+          <p id="status-title" class="eyebrow">MAC STATUS</p>
+          <h2 id="state">Unknown</h2>
+          <p id="explanation" class="muted">No verified status observation is available.</p>
+          <button id="unlock" type="button" hidden disabled>Unlock FileVault</button>
+        </div>
+        <div class="connection-bar"><span class="connection-dot" aria-hidden="true"></span><span id="service-status">Connecting</span><span id="last-checked" class="last-checked">No recent observation</span></div>
+      </section>
+      <div class="recovery-notes">
+        <section class="recovery-note" aria-labelledby="availability-title">
+          <span class="note-number" aria-hidden="true">01</span>
+          <h3 id="availability-title">Recovery availability</h3>
+          <p id="transport" class="muted">Unlock is disabled in this development build.</p>
+        </section>
+        <section class="recovery-note" aria-labelledby="privacy-title">
+          <span class="note-number" aria-hidden="true">02</span>
+          <h3 id="privacy-title">Your password stays temporary</h3>
+          <p class="muted">Designed for one attempt, without saving a password or writing it to Home Assistant history.</p>
+        </section>
+      </div>
+    </main>
+    <dialog id="recovery" aria-labelledby="recovery-title">
+      <form id="recovery-form" autocomplete="off">
+        <p class="eyebrow">ONE-TIME RECOVERY</p>
+        <h2 id="recovery-title">Unlock FileVault</h2>
+        <p class="muted">Enter the password for this attempt. The field clears as soon as you submit.</p>
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="off"
+          spellcheck="false" autocapitalize="none" maxlength="1024" required>
+        <div class="actions">
+          <button type="button" id="cancel-recovery" class="quiet">Cancel</button>
+          <button type="submit" id="submit-recovery">Unlock</button>
+        </div>
+        <p id="recovery-status" role="status" aria-live="polite"></p>
+      </form>
+    </dialog>
+    <footer class="app-footer"><p>FileVault <span id="app-version" class="app-version"></span></p><a href="https://github.com/jessfraz/ha-filevault" target="_blank" rel="noopener noreferrer">Source code ↗</a></footer>
+  </body>
+</html>
