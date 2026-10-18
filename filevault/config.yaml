@@ -1,7 +1,9 @@
 name: FileVault
-version: "0.1.0-alpha.2"
+version: "0.1.0-alpha.3"
 slug: filevault
-description: Password-based manual SSH unlock with optional automatic phase suggestions
+breaking_versions:
+  - "0.1.0-alpha.3"
+description: One Mac profile for password SSH and optional Tailscale running checks
 url: https://github.com/jessfraz/ha-filevault
 arch:
   - amd64
@@ -25,16 +27,14 @@ options:
   allowed_user_ids: []
   frontend_origin: ""
   status_token: ""
-  manual_ssh:
-    enabled: true
+  mac:
     host: ""
+    tailscale_host: ""
     port: 22
     username: ""
-  ssh_recovery:
+    manual_enabled: true
+  automatic:
     enabled: false
-    host: ""
-    port: 22
-    username: ""
     preboot_public_key: ""
     runtime_public_key: ""
     manual_enrollment_verified: false
@@ -44,16 +44,14 @@ schema:
     - str
   frontend_origin: str
   status_token: password
-  manual_ssh:
-    enabled: bool
+  mac:
     host: str
+    tailscale_host: str
     port: port
     username: str
-  ssh_recovery:
+    manual_enabled: bool
+  automatic:
     enabled: bool
-    host: str
-    port: port
-    username: str
     preboot_public_key: str
     runtime_public_key: str
     manual_enrollment_verified: bool

@@ -47,6 +47,9 @@ pub struct ManualConnection {
 pub trait ManualTransport: Send + Sync {
     fn open(&self) -> FutureResult<'_, Result<ManualConnection, Failure>>;
     fn trust(&self, key: &PublicKey) -> Result<(), Failure>;
+    fn trusts_key(&self, _key: &PublicKey) -> Result<bool, Failure> {
+        Ok(false)
+    }
 }
 
 enum Store {
@@ -157,6 +160,9 @@ impl SshManual {
 }
 
 impl ManualTransport for SshManual {
+    fn trusts_key(&self, key: &PublicKey) -> Result<bool, Failure> {
+        Ok(self.recorded()?.contains(key))
+    }
     fn open(&self) -> FutureResult<'_, Result<ManualConnection, Failure>> {
         Box::pin(async move {
             // A candidate handshake proves possession, not trust. No password

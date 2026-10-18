@@ -11,6 +11,7 @@ pub type FutureResult<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure {
     Unavailable,
+    Resolution,
     Identity,
     Unverified,
     Timeout,
@@ -132,6 +133,7 @@ pub(crate) struct Connection {
     epoch: tokio::sync::watch::Receiver<u64>,
     _shutdown: ShutdownOnDrop,
     pub server_key: PublicKey,
+    pub peer_addr: std::net::SocketAddr,
 }
 
 /// One password request on an already pinned connection. Phase is independent
@@ -247,6 +249,7 @@ async fn connect_identity(
         let stream = tokio::net::TcpStream::connect((host, port))
             .await
             .map_err(|_| Failure::Unavailable)?;
+        let peer_addr = stream.peer_addr().map_err(|_| Failure::Unavailable)?;
         let stream = stream.into_std().map_err(|_| Failure::Unavailable)?;
         let shutdown = ShutdownOnDrop(stream.try_clone().map_err(|_| Failure::Unavailable)?);
         let stream = tokio::net::TcpStream::from_std(stream).map_err(|_| Failure::Unavailable)?;
@@ -277,6 +280,7 @@ async fn connect_identity(
             epoch,
             _shutdown: shutdown,
             server_key,
+            peer_addr,
         })
     };
     tokio::time::timeout(Duration::from_secs(5), connection)

@@ -19,6 +19,7 @@ globalThis.document = {hidden: false, documentElement: {dataset: {}},
   getElementById: element, addEventListener: visibility.addEventListener.bind(visibility)};
 globalThis.window = {addEventListener: windowEvents.addEventListener.bind(windowEvents)};
 let state = "unknown";
+const connection = {host:"mac.example.invalid",port:22,username:"fixture-user",tailscale_host:"100.64.0.2"};
 let trust = "trusted";
 let failStatus = false;
 let deferred = null;
@@ -28,11 +29,11 @@ const target = () => ({host: "mac.example.invalid", port: 22, username: "fixture
   host_key_fingerprint: "SHA256:" + "a".repeat(43), trust_status: trust, trusted: trust === "trusted"});
 globalThis.fetch = async (path, options) => {
   if (path === "v1/system") return {ok: true, json: async () => ({manual_ready: true,
-    configuration_errors: ["Automatic phase detection is incomplete."]})};
+    connection, configuration_errors: [], configuration_notes:["FileVault preboot detection has not been learned."]})};
   if (path === "v1/status") {
     if (failStatus) throw new Error("Synthetic unavailable status");
     return {ok: true, json: async () => ({decision: {state, unlock_available: true},
-      transport_ready: true, manual_ready: true, configuration_errors: []})};
+      transport_ready: true, manual_ready: true, connection, configuration_errors: [], configuration_notes:[]})};
   }
   if (path === "v1/session" || path === "v1/manual/session") {
     if (deferred) return deferred;
@@ -55,6 +56,8 @@ globalThis.fetch = async (path, options) => {
 await import("../web/app.js");
 assert.equal(element("unlock").hidden, true);
 assert.equal(element("manual-ssh").hidden, false);
+assert.equal(element("shared-target").textContent,"fixture-user@mac.example.invalid:22");
+assert.equal(element("shared-runtime").textContent,"100.64.0.2:22");
 await element("manual-ssh").fire("click");
 assert.equal(element("recovery").open, true);
 assert.equal(element("password").disabled, false);
@@ -99,9 +102,18 @@ await element("manual-ssh").fire("click");
 assert.match(element("host-trust-status").textContent, /identity has changed/);
 assert.equal(element("password").disabled, true);
 assert.equal(trusts, 1);
-await element("cancel-recovery").fire("click");
+element("host-confirm").checked = true;
+await element("host-confirm").fire("change");
+await element("trust-host").fire("click");
+assert.equal(trusts, 2);
+assert.equal(element("password").disabled, false);
+element("manual-confirm").checked = true;
+await element("manual-confirm").fire("change");
+element("password").value = "DUMMY_SENTINEL";
+await element("recovery-form").fire("submit");
+assert.equal(attempts, 3);
+assert.equal(element("password").value, "");
 assert.equal(element("recovery").open, false);
-assert.equal(element("manual-confirm").checked, false);
 
 state = "verified_preboot";
 await element("refresh").fire("click");
@@ -109,7 +121,7 @@ assert.equal(element("unlock").hidden, false);
 await element("unlock").fire("click");
 element("password").value = "DUMMY_SENTINEL";
 await element("recovery-form").fire("submit");
-assert.equal(attempts, 3);
+assert.equal(attempts, 4);
 assert.match(element("notice").textContent, /Waiting/);
 
 state = "running";
@@ -120,7 +132,8 @@ failStatus = true;
 trust = "trusted";
 await element("refresh").fire("click");
 assert.equal(element("manual-ssh").hidden, false);
-assert.match(element("configuration").textContent, /incomplete/);
+assert.equal(element("configuration").hidden, true);
+assert.match(element("setup-note").textContent, /has not been learned/);
 await element("manual-ssh").fire("click");
 assert.equal(element("recovery").open, true);
 await element("cancel-recovery").fire("click");
@@ -134,7 +147,7 @@ resolve({ok: true, json: async () => ({nonce: "b".repeat(64), expires_in: 60, ta
 await opening;
 assert.equal(element("recovery").open, false);
 assert.equal(element("password").value, "");
-assert.equal(attempts, 3);
+assert.equal(attempts, 4);
 await element("theme").fire("click");
 assert.equal(document.documentElement.dataset.theme, "light");
 await element("theme").fire("click");

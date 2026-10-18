@@ -1,6 +1,7 @@
 use crate::{
     controller::{Controller, Outcome},
     policy::Decision,
+    runtime::RuntimeCheck,
     secret::Secret,
     ssh_manual::ManualTarget,
     transport::Disabled,
@@ -60,6 +61,32 @@ pub struct StatusReport {
     pub transport_ready: bool,
     pub manual_ready: bool,
     pub configuration_errors: Vec<&'static str>,
+    pub configuration_notes: Vec<&'static str>,
+    pub runtime_check: RuntimeCheck,
+    pub connection: Option<ConnectionSummary>,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub struct ConnectionSummary {
+    host: String,
+    port: u16,
+    username: String,
+    tailscale_host: String,
+}
+
+fn connection_summary(r: &RequestContext<Arc<Context>>) -> Option<ConnectionSummary> {
+    if !matches!(r.context().access, Access::Ingress { .. }) {
+        return None;
+    }
+    r.context()
+        .controller
+        .connection()
+        .map(|c| ConnectionSummary {
+            host: c.host,
+            port: c.port,
+            username: c.username,
+            tailscale_host: c.tailscale_host,
+        })
 }
 
 #[derive(Serialize, JsonSchema)]
@@ -68,6 +95,8 @@ pub struct SystemReport {
     credential_role: &'static str,
     manual_ready: bool,
     configuration_errors: Vec<&'static str>,
+    configuration_notes: Vec<&'static str>,
+    connection: Option<ConnectionSummary>,
 }
 
 #[endpoint {method=GET,path="/v1/system",tags=["system"]}]
@@ -84,6 +113,8 @@ async fn system(
         },
         manual_ready: r.context().controller.manual_ready(),
         configuration_errors: r.context().controller.configuration_errors(),
+        configuration_notes: r.context().controller.configuration_notes(),
+        connection: connection_summary(&r),
     }));
     response
         .headers_mut()
@@ -130,12 +161,16 @@ async fn status(
     r: RequestContext<Arc<Context>>,
 ) -> Result<HttpResponseHeaders<HttpResponseOk<StatusReport>>, HttpError> {
     authenticate(&r)?;
+    let (decision, runtime_check) = r.context().controller.observe_status().await;
     let report = StatusReport {
         version: env!("CARGO_PKG_VERSION"),
-        decision: r.context().controller.status().await,
+        decision,
         transport_ready: r.context().controller.ready(),
         manual_ready: r.context().controller.manual_ready(),
         configuration_errors: r.context().controller.configuration_errors(),
+        configuration_notes: r.context().controller.configuration_notes(),
+        runtime_check,
+        connection: connection_summary(&r),
     };
     let mut response = HttpResponseHeaders::new_unnamed(HttpResponseOk(report));
     response

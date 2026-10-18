@@ -1,6 +1,8 @@
 use crate::{
+    config::MacConfig,
     guard::AttemptGuard,
     policy::{Decision, Evidence, State, decide},
+    runtime::{RuntimeCheck, RuntimeObserver},
     secret::Secret,
     ssh_manual::{ManualTarget, ManualTransport},
     transport::{Failure, Session, Transport},
@@ -55,6 +57,9 @@ pub struct Controller {
     manual: Option<Arc<dyn ManualTransport>>,
     observer: Option<Arc<dyn Transport>>,
     configuration_errors: Vec<&'static str>,
+    configuration_notes: Vec<&'static str>,
+    connection: Option<MacConfig>,
+    runtime: Option<Arc<dyn RuntimeObserver>>,
     inner: Arc<Mutex<Inner>>,
     preparing: Semaphore,
     origin: String,
@@ -74,6 +79,9 @@ impl Controller {
             manual: None,
             observer: None,
             configuration_errors: Vec::new(),
+            configuration_notes: Vec::new(),
+            connection: None,
+            runtime: None,
             inner: Arc::new(Mutex::new(Inner {
                 guard: AttemptGuard::new(origin.clone(), started),
                 pending: HashMap::new(),
@@ -105,6 +113,58 @@ impl Controller {
 
     pub fn configuration_errors(&self) -> Vec<&'static str> {
         self.configuration_errors.clone()
+    }
+
+    pub fn with_configuration_notes(mut self, notes: Vec<&'static str>) -> Self {
+        self.configuration_notes = notes;
+        self
+    }
+    pub fn configuration_notes(&self) -> Vec<&'static str> {
+        self.configuration_notes.clone()
+    }
+    pub fn with_connection(mut self, connection: Option<MacConfig>) -> Self {
+        self.connection = connection;
+        self
+    }
+    pub fn connection(&self) -> Option<MacConfig> {
+        self.connection.clone()
+    }
+    pub fn with_runtime(mut self, runtime: Arc<dyn RuntimeObserver>) -> Self {
+        self.runtime = Some(runtime);
+        self
+    }
+
+    pub async fn observe_status(&self) -> (Decision, RuntimeCheck) {
+        let runtime_check = if let Some(runtime) = &self.runtime {
+            match tokio::time::timeout(CONNECT_LIMIT, runtime.observe()).await {
+                Ok(Ok(evidence)) => {
+                    if evidence.observed_at.elapsed() <= Duration::from_secs(10)
+                        && evidence.observed_at <= Instant::now()
+                    {
+                        RuntimeCheck::Verified
+                    } else {
+                        RuntimeCheck::Stale
+                    }
+                }
+                Ok(Err(Failure::Identity)) => RuntimeCheck::IdentityNeeded,
+                Ok(Err(Failure::Resolution)) => RuntimeCheck::NameUnavailable,
+                Err(_) | Ok(Err(Failure::Timeout)) => RuntimeCheck::TimedOut,
+                _ => RuntimeCheck::Unavailable,
+            }
+        } else {
+            RuntimeCheck::NotConfigured
+        };
+        if runtime_check == RuntimeCheck::Verified {
+            return (
+                decide(Evidence {
+                    age_seconds: Some(0.0),
+                    runtime_verified: true,
+                    ..Default::default()
+                }),
+                runtime_check,
+            );
+        }
+        (self.phase_status().await, runtime_check)
     }
 
     async fn observed_ssh(&self) -> Decision {
@@ -147,6 +207,10 @@ impl Controller {
     }
 
     pub async fn status(&self) -> Decision {
+        self.observe_status().await.0
+    }
+
+    async fn phase_status(&self) -> Decision {
         if tokio::time::timeout(CONNECT_LIMIT, self.transport.runtime_ready())
             .await
             .unwrap_or(false)

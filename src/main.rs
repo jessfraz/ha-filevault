@@ -12,6 +12,11 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<()> {
     let (config, options) = Config::load()?;
+    if let Some(input) = &config.migrate_options {
+        filevault::migration::write(input, config.migration_output.as_ref().unwrap())?;
+        println!("Connection options migrated. Original file preserved; output is owner-only.");
+        return Ok(());
+    }
     if let Some(path) = config.openapi {
         std::fs::write(
             path,
@@ -28,7 +33,12 @@ async fn main() -> Result<()> {
         options.frontend_origin.unwrap_or_default(),
         std::time::Instant::now(),
     )
-    .with_configuration_errors(profiles.errors);
+    .with_configuration_errors(profiles.errors)
+    .with_configuration_notes(profiles.notes)
+    .with_connection(profiles.connection);
+    if let Some(runtime) = profiles.runtime {
+        controller = controller.with_runtime(runtime);
+    }
     if let Some(observer) = profiles.observer {
         controller = controller.with_observer(observer);
     }

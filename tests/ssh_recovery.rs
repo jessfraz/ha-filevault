@@ -713,7 +713,18 @@ async fn runtime_public_identity_is_observed_without_enabling_phase_recovery() {
     recovery.manual_enrollment_verified = false;
     recovery.preboot_public_key.clear();
     let options = filevault::config::Options {
-        ssh_recovery: Some(recovery),
+        mac: Some(filevault::config::MacConfig {
+            host: recovery.host,
+            port: recovery.port,
+            username: recovery.username,
+            ..Default::default()
+        }),
+        automatic: Some(filevault::config::AutomaticConfig {
+            enabled: recovery.enabled,
+            preboot_public_key: recovery.preboot_public_key,
+            runtime_public_key: recovery.runtime_public_key,
+            manual_enrollment_verified: recovery.manual_enrollment_verified,
+        }),
         ..Default::default()
     };
     let dir = tempfile::tempdir().unwrap();
@@ -727,4 +738,131 @@ async fn runtime_public_identity_is_observed_without_enabling_phase_recovery() {
     assert_eq!(controller.status().await.state, State::SshReachable);
     assert!(!controller.ready());
     assert_eq!(fixture.state.passwords.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn one_mac_profile_drives_both_manual_and_automatic_connections() {
+    let fixture = Fixture::start(StateFixture::default()).await;
+    let config = &fixture.config;
+    let options = filevault::config::Options::parse(
+        &serde_json::to_vec(&serde_json::json!({
+            "mac":{"host":config.host,"port":config.port,"username":config.username},
+            "automatic":{"enabled":true,"preboot_public_key":config.preboot_public_key,
+                "runtime_public_key":config.runtime_public_key,"manual_enrollment_verified":true}
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let profiles = filevault::profiles::build(&options, Some(&dir.path().join("options.json")));
+    assert!(profiles.errors.is_empty());
+    let controller = Controller::new(
+        profiles.transport,
+        "https://ha.example.invalid".into(),
+        Instant::now() - Duration::from_secs(61),
+    )
+    .with_manual(profiles.manual.unwrap());
+    assert_eq!(controller.status().await.state, State::VerifiedPreboot);
+    let manual = controller.manual_challenge("user").await.unwrap();
+    assert_eq!(
+        (
+            &*manual.target.host,
+            manual.target.port,
+            &*manual.target.username
+        ),
+        (&*config.host, config.port, &*config.username)
+    );
+    fixture.state.runtime.store(true, Ordering::SeqCst);
+    assert_eq!(controller.status().await.state, State::Running);
+    assert_eq!(fixture.state.passwords.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn shared_profile_http_flow_verifies_new_and_changed_servers_before_password() {
+    use filevault::api::{self, Access, Context};
+    let fixture = Fixture::start(StateFixture::default()).await;
+    let options=filevault::config::Options::parse(&serde_json::to_vec(&serde_json::json!({
+        "mac":{"host":fixture.config.host,"port":fixture.config.port,"username":fixture.config.username},
+        "automatic":{"enabled":true}
+    })).unwrap()).unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    for (index, trust_status) in ["new", "changed"].into_iter().enumerate() {
+        let profiles = filevault::profiles::build(&options, Some(&dir.path().join("options.json")));
+        assert!(profiles.errors.is_empty());
+        let controller = Controller::new(
+            profiles.transport,
+            "https://ha.example.invalid".into(),
+            Instant::now() - Duration::from_secs(61),
+        )
+        .with_manual(profiles.manual.unwrap())
+        .with_connection(profiles.connection);
+        assert_eq!(controller.status().await.state, State::Unknown);
+        let server = api::start(
+            "127.0.0.1:0".parse().unwrap(),
+            Arc::new(Context::with_controller(
+                Access::Ingress {
+                    peer: "127.0.0.1".parse().unwrap(),
+                    users: ["user".into()].into(),
+                },
+                Arc::new(controller),
+            )),
+        )
+        .unwrap();
+        let base = format!("http://{}", server.local_addr());
+        let client = reqwest::Client::new();
+        let request = |path: &str| {
+            client
+                .post(format!("{base}{path}"))
+                .header("x-remote-user-id", "user")
+                .header("origin", "https://ha.example.invalid")
+                .header("sec-fetch-site", "same-origin")
+        };
+        let response = request("/v1/manual/session").send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        let cookie = response.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        let grant: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(grant["target"]["trust_status"], trust_status);
+        assert_eq!(grant["target"]["host"], fixture.config.host);
+        assert_eq!(grant["target"]["port"], fixture.config.port);
+        assert_eq!(fixture.state.passwords.load(Ordering::SeqCst), index);
+        let denied = request("/v1/manual/trust")
+            .header("cookie", &cookie)
+            .header("x-filevault-nonce", grant["nonce"].as_str().unwrap())
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), 400);
+        let trusted = request("/v1/manual/trust")
+            .header("cookie", &cookie)
+            .header("x-filevault-nonce", grant["nonce"].as_str().unwrap())
+            .header("x-filevault-confirm", "verified_host_identity")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(trusted.status(), 200);
+        let response = request("/v1/manual/attempt")
+            .header("cookie", cookie)
+            .header("x-filevault-nonce", grant["nonce"].as_str().unwrap())
+            .header("x-filevault-confirm", "manual_ssh")
+            .header("content-type", "application/octet-stream")
+            .body("DUMMY_SENTINEL")
+            .send()
+            .await
+            .unwrap();
+        let result: serde_json::Value = response.json().await.unwrap();
+        assert_eq!(result["outcome"], "authenticated");
+        assert_eq!(fixture.state.passwords.load(Ordering::SeqCst), index + 1);
+        assert!(
+            !std::fs::read_to_string(dir.path().join("ssh_known_hosts"))
+                .unwrap()
+                .contains("DUMMY_SENTINEL")
+        );
+        server.close().await.unwrap();
+    }
 }

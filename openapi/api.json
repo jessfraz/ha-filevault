@@ -41,6 +41,31 @@
         ],
         "type": "object"
       },
+      "ConnectionSummary": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "port": {
+            "format": "uint16",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tailscale_host": {
+            "type": "string"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "port",
+          "tailscale_host",
+          "username"
+        ],
+        "type": "object"
+      },
       "Decision": {
         "properties": {
           "state": {
@@ -140,6 +165,18 @@
         ],
         "type": "object"
       },
+      "RuntimeCheck": {
+        "enum": [
+          "not_configured",
+          "verified",
+          "identity_needed",
+          "unavailable",
+          "name_unavailable",
+          "timed_out",
+          "stale"
+        ],
+        "type": "string"
+      },
       "State": {
         "enum": [
           "running",
@@ -158,11 +195,28 @@
             },
             "type": "array"
           },
+          "configuration_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "connection": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionSummary"
+              }
+            ],
+            "nullable": true
+          },
           "decision": {
             "$ref": "#/components/schemas/Decision"
           },
           "manual_ready": {
             "type": "boolean"
+          },
+          "runtime_check": {
+            "$ref": "#/components/schemas/RuntimeCheck"
           },
           "transport_ready": {
             "type": "boolean"
@@ -173,8 +227,10 @@
         },
         "required": [
           "configuration_errors",
+          "configuration_notes",
           "decision",
           "manual_ready",
+          "runtime_check",
           "transport_ready",
           "version"
         ],
@@ -188,6 +244,20 @@
             },
             "type": "array"
           },
+          "configuration_notes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "connection": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionSummary"
+              }
+            ],
+            "nullable": true
+          },
           "credential_role": {
             "type": "string"
           },
@@ -200,6 +270,7 @@
         },
         "required": [
           "configuration_errors",
+          "configuration_notes",
           "credential_role",
           "manual_ready",
           "version"
@@ -211,7 +282,7 @@
   "info": {
     "description": "Status suggestions, verified-phase recovery, and explicitly confirmed manual SSH authentication to pinned targets. Authentication does not certify FileVault unlock.",
     "title": "FileVault API",
-    "version": "0.1.0-alpha.2"
+    "version": "0.1.0-alpha.3"
   },
   "openapi": "3.0.3",
   "paths": {

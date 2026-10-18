@@ -63,11 +63,11 @@ async fn incomplete_phase_profile_keeps_the_real_app_and_manual_ui_available() {
     let report: serde_json::Value = response.json().await.unwrap();
     assert_eq!(report["manual_ready"], true);
     assert!(
-        report["configuration_errors"]
+        report["configuration_notes"]
             .as_array()
             .unwrap()
             .iter()
-            .any(|s| s.as_str().unwrap().contains("Automatic phase detection"))
+            .any(|s| s.as_str().unwrap().contains("preboot detection"))
     );
     let html = client
         .get(format!("http://{address}/"))
@@ -83,10 +83,9 @@ async fn incomplete_phase_profile_keeps_the_real_app_and_manual_ui_available() {
 
 #[test]
 fn invalid_manual_options_disable_the_action_without_exposing_input() {
-    let options: Options = serde_json::from_value(serde_json::json!({
-        "manual_ssh":{"enabled":true,"host":"bad host", "port":22,"username":"fixture-user"}
-    }))
-    .unwrap();
+    let options =
+        Options::parse(br#"{"mac":{"host":"bad host","port":22,"username":"fixture-user"}}"#)
+            .unwrap();
     let dir = tempfile::tempdir().unwrap();
     let result = profiles::build(&options, Some(&dir.path().join("options.json")));
     assert!(result.manual.is_none());
@@ -111,8 +110,7 @@ fn malformed_ssh_sections_fail_closed_without_discarding_access_configuration() 
         "manual_ssh":{"enabled":true,"host":"127.0.0.1","port":"wrong-type","username":"fixture-user"}
     }"#).unwrap();
     assert_eq!(options.allowed_user_ids, ["fixture-ha-user"]);
-    assert!(options.invalid_profiles.contains(&"automatic"));
-    assert!(options.invalid_profiles.contains(&"manual"));
+    assert!(options.invalid_profiles.contains(&"connection"));
     let dir = tempfile::tempdir().unwrap();
     let profiles = profiles::build(&options, Some(&dir.path().join("options.json")));
     assert!(profiles.manual.is_none());
@@ -132,8 +130,7 @@ fn malformed_access_options_never_create_default_authority() {
     }"#,
     )
     .unwrap();
-    assert!(options.manual_ssh.is_none());
-    assert_eq!(options.invalid_profiles, ["manual"]);
+    assert_eq!(options.invalid_profiles, ["connection"]);
 }
 
 #[test]

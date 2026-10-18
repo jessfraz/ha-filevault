@@ -19,12 +19,26 @@ let refreshAbort = null;
 let epoch = 0;
 let theme = "auto";
 let hostTrusted = false;
+let sharedConnection = null;
 
 function configuration(report) {
   const errors = Array.isArray(report?.configuration_errors)
     ? report.configuration_errors.filter((value) => typeof value === "string") : [];
   byId("configuration").textContent = errors.join(" ");
   byId("configuration").hidden = !errors.length;
+  const notes = Array.isArray(report?.configuration_notes)
+    ? report.configuration_notes.filter((value) => typeof value === "string") : [];
+  byId("setup-note").textContent = notes.join(" ");
+  byId("setup-note").hidden = !notes.length;
+  const target = report?.connection;
+  if (target && typeof target.host === "string" && typeof target.username === "string"
+      && Number.isInteger(target.port) && typeof target.tailscale_host === "string") {
+    sharedConnection = target;
+    byId("shared-target").textContent = target.host
+      ? `${target.username || "Set username"}@${target.host}:${target.port}` : "Not configured";
+    byId("shared-runtime").textContent = target.tailscale_host
+      ? `${target.tailscale_host}:${target.port}` : "Optional, not configured";
+  }
 }
 
 function buttons() {
@@ -51,19 +65,19 @@ function render(report) {
   const view = presentation(report);
   byId("state").textContent = view.label;
   byId("explanation").textContent = view.explanation;
-  byId("status-card").dataset.state = report?.decision?.state ?? "unknown";
+  byId("status-card").dataset.state = view.statusState;
   canUnlock = view.canUnlock;
   if (typeof report?.manual_ready === "boolean") canManual = report.manual_ready;
   if (report) configuration(report);
   if ((mode === "automatic" && !canUnlock) || (mode === "manual" && !canManual)) clearGrant();
   buttons();
   if (report?.version) byId("app-version").textContent = report.version;
-  byId("transport").textContent = report?.transport_ready === true
-    ? "Automatic suggestions use independently verified boot-phase identities."
-    : "Automatic phase detection is not configured. Manual SSH works independently.";
+  byId("transport").textContent = sharedConnection?.tailscale_host
+    ? "A fresh response from this Mac's Tailscale address checks whether its normal runtime is available. No login password is used. A failed check does not prove it is locked."
+    : "Add the Mac's optional Tailscale address to the same connection profile for automatic running checks. No saved login password or client key is needed.";
   byId("manual-availability").textContent = canManual
     ? "Password login is ready. New or changed servers require your confirmation first."
-    : "Set the Mac's host and username in app settings. Its password is entered only when connecting.";
+    : "Set the shared Mac connection in app settings. Enter a password only when connecting.";
 }
 async function refresh() {
   if (pending || refreshing || preparation) return;
@@ -84,7 +98,7 @@ async function refresh() {
       buttons();
       byId("manual-availability").textContent = canManual
         ? "Password login is ready. New or changed servers require your confirmation first."
-        : "Set the Mac's host and username in app settings. Its password is entered only when connecting.";
+        : "Set the shared Mac connection in app settings. Enter a password only when connecting.";
     } catch { /* Existing capability remains usable; the server is authoritative. */ }
   })();
   try {
@@ -134,6 +148,10 @@ async function prepare(selectedMode) {
           || typeof target.username !== "string" || target.username.length > 255
           || !Number.isInteger(target.port) || target.port < 1 || target.port > 65535
           || !/^SHA256:[A-Za-z0-9+/]{43}$/.test(target.host_key_fingerprint)) throw new Error("Invalid target");
+      if (sharedConnection && (target.host !== sharedConnection.host
+          || target.port !== sharedConnection.port || target.username !== sharedConnection.username)) {
+        throw new Error("Connection changed; refresh status");
+      }
       byId("manual-target").textContent = `${target.username}@${target.host}:${target.port}`;
       byId("manual-key").textContent = target.host_key_fingerprint;
       if (!["new", "trusted", "changed"].includes(target.trust_status)
@@ -201,7 +219,7 @@ byId("trust-host").addEventListener("click", async () => {
     if (nonce !== grant || mode !== "manual" || document.hidden) return;
     hostTrusted = true;
     byId("host-trust").hidden = true;
-    byId("host-trust-status").textContent = "SSH server identity remembered. Enter your account password for one attempt.";
+    byId("host-trust-status").textContent = "Server identity remembered. Enter a password for one attempt, or cancel to use automatic checks without a password.";
     password.disabled = false;
     byId("submit-recovery").disabled = !confirmation.checked;
     password.focus();

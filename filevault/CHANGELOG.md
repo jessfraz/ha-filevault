@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.0-alpha.3
+
+- Replace duplicate targets with one Mac connection shared by manual SSH and
+  automatic observations, including an optional Tailscale address.
+- Add deterministic private migration with conflict reporting and an explicit
+  HA upgrade preflight; prevent unattended schema-changing updates.
+- Use fresh, identity-verified Tailscale responses as positive normal-runtime
+  evidence. Treat timeout, stale data, DNS failure and absence as ambiguous.
+- Make missing preboot enrollment a setup note rather than an invalid profile.
+- Show the shared connection and keep normal status checks independent of login
+  passwords or client keys. Verify the full new/changed host confirmation flow.
+
 ## 0.1.0-alpha.2
 
 - Add permanent manual password SSH with separate first-connection and changed

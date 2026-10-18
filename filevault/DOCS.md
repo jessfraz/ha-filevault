@@ -1,68 +1,91 @@
-# Configuration
+# FileVault app
 
-The app uses managed /data, initial ownership setup then UID 10001,
-authenticated
-Supervisor ingress on 8099, and an optional internal read-only API on 8080 with
-no host mapping. No privileged mode, host networking, host mounts, devices,
-Docker socket, Core API token, or broad Supervisor management grant is
-requested.
+The app uses managed /data, ingress 8099, and optional internal read-only API
+8080 with no host mapping. Initial ownership setup drops to UID 10001. There
+are no host mounts, privileged mode, Docker/Core API access, or broad Supervisor
+grants. Existing read-only integration pairing remains unchanged.
 
-Set allowed_user_ids to actual approved HA users and frontend_origin to the
-exact HTTPS browser origin without a path or trailing slash. Empty user lists
-deny access. Missing or incorrect origin prevents password requests.
+## Configure one Mac
 
-## Manual password SSH
+In Mac connection, set host to the LAN unlock hostname, port to its SSH port,
+and username to the account used for manual password login. These values exist
+once. manual_enabled preserves the choice to permit manual requests.
 
-manual_ssh contains enabled, host, port, and username. Enter no password or
-client key in options. The manual feature is permanent and independent of
-phase detection. A blank manual target can reuse the existing ssh_recovery
-host/port/username; existing options are preserved. Explicitly disabling
-manual_ssh disables the manual action.
+Optionally set tailscale_host to this same Mac's actual Tailscale IP or full
+MagicDNS hostname. It uses the same SSH port and trusted server identity store.
+A numeric Tailscale IP avoids a dependency on working MagicDNS inside the app.
+No tailnet credentials or permissions are added. The app container needs an
+existing route to that address; a host-level successful probe is insufficient
+to establish container reachability.
 
-Connect in the app, verify a new or changed server fingerprint through a trusted
-source, and explicitly confirm that identity before password entry. Recognized
-servers need only account/attempt confirmation and the temporary password.
-Only public identities persist in /data/ssh_known_hosts, mode 0600. The saved
-runtime public identity, if explicitly provisioned, can bootstrap normal trust.
-Never copy or store a private key or account password there.
+Set allowed_user_ids explicitly and frontend_origin to the exact HA HTTPS
+origin without a path or trailing slash. Never enter a login password, private
+key, or SSH client-key credential into app options.
 
-One user-confirmed password authentication request is sent over the same SSH
-connection whose identity was displayed. No automatic reconnect, retry, shell,
-PTY, commands, agent forwarding, or alternative authentication method occurs.
-An accepted password is not proof of FileVault unlock. A disconnect is
-unconfirmed. Refresh and verify required services independently.
+## Connect with SSH
 
-## Status and automatic suggestions
+Open the app and choose Connect with SSH. The displayed LAN account comes from
+the same Mac profile shown above status. A new or changed server identity needs
+independent fingerprint verification, a checked confirmation, and a click on
+Trust this SSH server before password entry becomes available. A changed key
+is never silently accepted. Public host identity is different from a client
+key used for account authentication; no client key is required here.
 
-Trusted SSH reachability can report SSH online without phase enrollment or
-password authentication. It does not prove FileVault state or desktop login.
+After trust, confirm the target and one password attempt, enter the password
+for that attempt, and submit once. The field clears immediately. Authentication
+and disconnect results do not prove FileVault unlock or normal startup. There
+is no terminal, command execution, automatic retry, or saved login password.
+You can also verify server identity and cancel without entering a password.
 
-ssh_recovery is an optional advanced automatic classifier. Its two phase public
-keys must be independently trusted, distinct, stable, and exclusive to their
-phases before manual_enrollment_verified is set. Shared keys are unsupported
-for automatic classification. Missing or invalid automatic keys show a safe
-message and leave the dashboard/manual path available; they do not exit the app.
-Do not fabricate enrollment proof to enable suggestions. Manual password SSH
-does not require it.
+The existing startup and attempt cooldowns are 60 seconds. A new explicit
+connection is required after an expired grant, cancellation, or failed attempt.
 
-## Pairing and persistence
+## Read status
 
-auto_pairing defaults to true. Approved startup creates/reuses one read-only
-integration credential in /data/credentials.json, mode 0600, and announces it
-through authenticated Supervisor self-info/discovery. HA confirms before
-validating or storing it in Core. It cannot submit an SSH password or trust a
-server identity. No owner mutation credential is created.
+A fresh Tailscale SSH response with the trusted Mac server identity establishes
+positive normal-runtime evidence. It uses no account password or client key.
+The actual peer must be in a Tailscale address range. A bare banner, cached
+controller presence, LAN response, or stale observation cannot establish this
+Running state. Required applications and desktop login remain separate checks.
 
-For explicit standalone pairing, disable auto_pairing and provide a separate
-32–256-character status_token. Never use an account password for status_token.
-The optional Core adapter executes custom Python and stores the read-only token
-in its config entry. Include that trust boundary, persistence, and any necessary
-coordinated Core restart in installation/update approval.
+No Tailscale response means unavailable and possibly needing unlock, with
+network failure still possible. Name resolution, timeout, and identity setup
+have separate guidance. Manual LAN SSH remains available when configured.
+Verify this app container's route before claiming deployed live detection.
+Actual power-loss and FileVault cold-boot behavior remain unvalidated.
 
-Before a real attempt, review deployed proxies with dummy data, verify remote
-HA ingress from the user's actual device, and establish control/recovery that
-survives the Mac becoming unavailable. The user enters the password directly
-with all agent observation inactive. No password belongs in chat, tools,
-commands, files, HA options/entities/services/events/automations, traces, or
-logs.
-No hardware reboot or power test is implied by installation or a source release.
+Advanced FileVault preboot suggestions use optional separately verified phase
+identities in automatic. They contain no host, port, or username. Missing
+preboot enrollment is a setup note and does not block normal Tailscale checks
+or manual password SSH. Never mark enrollment verified from normal runtime.
+
+## Migrate alpha.1 or alpha.2
+
+The release is listed in breaking_versions to prevent unattended installation
+across the schema change. Before updating, export the current saved app options
+privately. Keep existing app data, pairing credentials, and ssh_known_hosts.
+Supervisor discards unknown schema fields before passing options to the app;
+do not rely on backend legacy parsing as an HA migration mechanism.
+
+Run the new binary against that private export:
+
+```sh
+filevault --migrate-options original.json --migration-output canonical.json
+```
+
+The original is preserved. A new owner-only canonical file contains one mac
+profile, automatic evidence settings, and the original access/pairing options.
+It contains no legacy connection groups. Conflicting hostnames, ports, accounts
+or identities stop migration with a safe error; resolve the original options
+explicitly rather than guessing. Never print or upload either options file.
+
+After the new schema is installed, the HA mutation owner applies canonical
+options using Supervisor, restarts only this app as required, and reads back
+its values privately. Check versions, continued startup, one editable target,
+manual capability, no invalid-profile error for missing preboot enrollment,
+private file permissions, existing pairing, and live tailnet reachability from
+inside the app container. Coordinate any integration/Core restart separately.
+
+Only the user enters a real password, with agent observation and inspection
+off. Use loopback-only synthetic fixtures for automated UI checks. Keep PDU
+work on hold until the corrected deployed app has been verified.

@@ -14,3 +14,12 @@ assert.match(html, /id="password" type="password" autocomplete="off"/);
 const js = await readFile(new URL("../web/app.js", import.meta.url), "utf8");
 assert.doesNotMatch(js, /localStorage|sessionStorage|indexedDB|console\./);
 console.log("UI state policy and masked-field checks passed");
+
+for (const runtime_check of ["unavailable", "stale"]) {
+  const view = presentation({decision:{state:"ssh_reachable"},runtime_check});
+  assert.equal(view.label,"Unavailable");
+  assert.match(view.explanation,/may need unlocking.*network/);
+  assert.equal(view.canUnlock,false);
+}
+assert.match(presentation({decision:{state:"running"},runtime_check:"verified"}).explanation,/responded now.*Tailscale/);
+assert.match(presentation({decision:{state:"unknown"},runtime_check:"identity_needed"}).explanation,/stop before entering a password/);

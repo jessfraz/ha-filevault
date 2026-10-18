@@ -281,6 +281,8 @@ fn no_password_configuration_fields() {
         .is_err()
     );
     for payload in [
+        r#"{"mac":{"password":"DUMMY_SENTINEL"}}"#,
+        r#"{"automatic":{"password":"DUMMY_SENTINEL"}}"#,
         r#"{"manual_ssh":{"password":"DUMMY_SENTINEL"}}"#,
         r#"{"ssh_recovery":{"password":"DUMMY_SENTINEL"}}"#,
     ] {

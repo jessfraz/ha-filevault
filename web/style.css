@@ -126,3 +126,11 @@ input[type="password"] { width: 100%; border: 1px solid var(--line); border-radi
 .notice.configuration { color: var(--amber-ink); background: var(--amber-fill); border-color: var(--amber-line); }
 #host-trust { padding: 0 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
 #host-trust button { background: var(--action); color: var(--on-action); }
+
+.profile-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 20px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+.profile-summary h3 { margin: 4px 0 8px; font-size: 17px; }
+.profile-summary p { margin-bottom: 0; }
+.profile-summary dl { margin: 0; display: grid; gap: 12px; }
+.profile-summary dt { font: 10px var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 5px; }
+.profile-summary dd { margin: 0; font: 12px var(--mono); overflow-wrap: anywhere; }
+@media (max-width: 640px) { .profile-summary { grid-template-columns: 1fr; gap: 18px; } }

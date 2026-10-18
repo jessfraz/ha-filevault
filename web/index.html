@@ -25,6 +25,13 @@
       </div>
       <p id="notice" class="notice" role="status" aria-live="polite"></p>
       <p id="configuration" class="notice configuration" role="status" hidden></p>
+      <section class="profile-summary" aria-labelledby="connection-title">
+        <div><p class="eyebrow">ONE MAC CONNECTION</p><h3 id="connection-title">Shared connection</h3>
+          <p class="field-help">Edit this profile once in FileVault app settings. Manual login and automatic checks use it.</p></div>
+        <dl><div><dt>LAN password connection</dt><dd id="shared-target">Not configured</dd></div>
+          <div><dt>Tailscale running check</dt><dd id="shared-runtime">Optional, not configured</dd></div></dl>
+      </section>
+      <p id="setup-note" class="field-help" hidden></p>
       <section id="status-card" class="recovery-card" aria-labelledby="status-title" data-state="unknown">
         <div class="status-art" aria-hidden="true"><img src="brand.svg" width="108" height="108" alt=""></div>
         <div class="status-content">
@@ -38,14 +45,14 @@
       <section class="manual-card" aria-labelledby="manual-title">
         <div><p class="eyebrow">YOU'RE IN CONTROL</p><h3 id="manual-title">Manual SSH unlock</h3>
           <p class="muted">Send one password login to your trusted Mac, even when automatic status is unknown or running. You confirm the target first.</p>
-          <p id="manual-availability" class="field-help">Set the Mac's host and username in app settings. Its password is entered only when connecting.</p></div>
+          <p id="manual-availability" class="field-help">Set the shared Mac connection in app settings. Enter a password only when connecting.</p></div>
         <button id="manual-ssh" type="button" hidden disabled>Connect with SSH</button>
       </section>
       <div class="recovery-notes">
         <section class="recovery-note" aria-labelledby="availability-title">
           <span class="note-number" aria-hidden="true">01</span>
           <h3 id="availability-title">Recovery availability</h3>
-          <p id="transport" class="muted">Recovery is unavailable until this Mac is verified.</p>
+          <p id="transport" class="muted">Automatic status checks never need a saved login password.</p>
         </section>
         <section class="recovery-note" aria-labelledby="privacy-title">
           <span class="note-number" aria-hidden="true">02</span>

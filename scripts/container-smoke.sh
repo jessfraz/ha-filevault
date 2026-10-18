@@ -19,7 +19,7 @@ options='{"allowed_user_ids":["fixture-user"],"frontend_origin":"https://ha.exam
 container=$(docker run --detach --read-only --network none --user 10001:10001 \
     --tmpfs /data:rw,noexec,nosuid,nodev,size=1m,uid=10001,gid=10001,mode=0700 \
     --env SUPERVISOR_TOKEN=supervisor-only-dummy-token --entrypoint /bin/sh \
-    "$image" -c 'printf "%s" "$1" > /data/options.json; sha256sum /data/options.json > /data/options.sha256; exec /usr/local/bin/docker-entrypoint.sh --ingress-bind 127.0.0.1:8099 --ingress-peer 127.0.0.1' sh "$options")
+    "$image" -c 'printf "%s" "$1" > /data/original.json; sha256sum /data/original.json > /data/original.sha256; /usr/local/bin/filevault --migrate-options /data/original.json --migration-output /data/options.json; sha256sum /data/options.json > /data/options.sha256; exec /usr/local/bin/docker-entrypoint.sh --ingress-bind 127.0.0.1:8099 --ingress-peer 127.0.0.1' sh "$options")
 probe='exec 3<>/dev/tcp/127.0.0.1/8099; printf "GET /v1/system HTTP/1.1\r\nHost: localhost\r\nX-Remote-User-Id: fixture-user\r\nConnection: close\r\n\r\n" >&3; cat <&3'
 response=
 for _ in {1..20}; do
@@ -30,6 +30,7 @@ for _ in {1..20}; do
 done
 [[ "$response" == *'200 OK'* ]]
 [[ "$response" == *'"manual_ready":true'* ]]
-[[ "$response" == *'Automatic phase detection is incomplete or invalid.'* ]]
-docker exec "$container" /bin/sh -c 'test "$(id -u)" -eq 10001; test "$(stat -c %a /data/credentials.json)" = 600; test "$(stat -c %a /data/ssh_known_hosts)" = 600; sha256sum --status --check /data/options.sha256'
-printf '%s\n' 'Incomplete phase setup keeps authenticated UI and manual SSH available; private bootstrap files and original options preserved'
+[[ "$response" == *'"configuration_errors":[]'* ]]
+[[ "$response" == *'FileVault preboot detection has not been learned.'* ]]
+docker exec "$container" /bin/sh -c 'test "$(id -u)" -eq 10001; test "$(stat -c %a /data/credentials.json)" = 600; test "$(stat -c %a /data/ssh_known_hosts)" = 600; sha256sum --status --check /data/options.sha256; sha256sum --status --check /data/original.sha256; ! grep -Eq "manual_ssh|ssh_recovery|ssh_probe" /data/options.json; test "$(stat -c %a /data/options.json)" = 600'
+printf '%s\n' 'Legacy migration produces one Mac profile; incomplete preboot remains a setup note; authenticated UI, manual SSH and private original options preserved'

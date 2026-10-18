@@ -1,6 +1,6 @@
 use anyhow::{Result, ensure};
 use clap::Parser;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::{
     net::{IpAddr, SocketAddr},
     path::PathBuf,
@@ -21,64 +21,74 @@ pub struct Config {
     pub options: Option<PathBuf>,
     #[arg(long)]
     pub openapi: Option<PathBuf>,
+    #[arg(long, requires = "migration_output", conflicts_with_all = ["options", "openapi"])]
+    pub migrate_options: Option<PathBuf>,
+    #[arg(long, requires = "migrate_options")]
+    pub migration_output: Option<PathBuf>,
 }
 
-#[derive(Default, Deserialize)]
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MacConfig {
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub manual_enabled: bool,
+    pub tailscale_host: String,
+}
+impl Default for MacConfig {
+    fn default() -> Self {
+        Self {
+            host: String::new(),
+            port: 22,
+            username: String::new(),
+            manual_enabled: true,
+            tailscale_host: String::new(),
+        }
+    }
+}
+
+#[derive(Clone, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AutomaticConfig {
+    pub enabled: bool,
+    pub preboot_public_key: String,
+    pub runtime_public_key: String,
+    pub manual_enrollment_verified: bool,
+}
+
+#[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Options {
     #[serde(default)]
     pub allowed_user_ids: Vec<String>,
     pub frontend_origin: Option<String>,
-    pub ssh_probe: Option<crate::transport::ProbeConfig>,
-    pub ssh_recovery: Option<crate::ssh_recovery::RecoveryConfig>,
-    pub manual_ssh: Option<crate::ssh_manual::ManualConfig>,
+    pub mac: Option<MacConfig>,
+    pub automatic: Option<AutomaticConfig>,
     /// Separate read-only service credential, never a Mac password.
     pub status_token: Option<String>,
     #[serde(default)]
     pub auto_pairing: bool,
     #[serde(skip)]
     pub invalid_profiles: Vec<&'static str>,
+    #[serde(skip)]
+    pub migrated: bool,
 }
 
 impl Options {
-    /// SSH sections may fail closed independently. Access-control options must
-    /// remain valid; never invent an allowlist/origin from malformed input.
+    /// Resolve every legacy target before constructing any transport. Malformed
+    /// access controls remain fatal; connection conflicts disable all SSH paths.
     pub fn parse(bytes: &[u8]) -> Result<Self> {
-        let mut raw: serde_json::Value = serde_json::from_slice(bytes)
-            .map_err(|_| anyhow::anyhow!("invalid app options JSON"))?;
-        let object = raw
-            .as_object_mut()
-            .ok_or_else(|| anyhow::anyhow!("app options must be an object"))?;
-        let automatic = object.remove("ssh_recovery");
-        let manual = object.remove("manual_ssh");
-        let observer = object.remove("ssh_probe");
-        let mut options: Self = serde_json::from_value(raw)
-            .map_err(|_| anyhow::anyhow!("invalid app access options"))?;
-        if let Some(value) = automatic {
-            match serde_json::from_value(value) {
-                Ok(profile) => options.ssh_recovery = profile,
-                Err(_) => options.invalid_profiles.push("automatic"),
-            }
-        }
-        if let Some(value) = manual {
-            match serde_json::from_value(value) {
-                Ok(profile) => options.manual_ssh = profile,
-                Err(_) => options.invalid_profiles.push("manual"),
-            }
-        }
-        if let Some(value) = observer {
-            match serde_json::from_value(value) {
-                Ok(profile) => options.ssh_probe = profile,
-                Err(_) => options.invalid_profiles.push("observer"),
-            }
-        }
-        Ok(options)
+        crate::migration::parse(bytes)
     }
 }
 
 impl Config {
     pub fn load() -> Result<(Self, Options)> {
         let mut config = Self::parse();
+        if config.migrate_options.is_some() {
+            return Ok((config, Options::default()));
+        }
         let mut options: Options = if let Some(path) = &config.options {
             let bytes = std::fs::read(path).map_err(|_| anyhow::anyhow!("read app options"))?;
             Options::parse(&bytes)?

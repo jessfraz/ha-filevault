@@ -11,11 +11,11 @@ configuration:
   status_token:
     name: Read-only status API token
     description: Optional service credential of 32 to 256 characters, shared with the status integration. Never enter a Mac password here. Empty disables the separate API.
-  manual_ssh:
-    name: Manual password SSH
-    description: Permanent manual login using host, port, and username. Confirm a new or changed server in the app, then enter your account password for one attempt. No client key or saved password is required.
-  ssh_recovery:
-    name: Optional automatic phase suggestions
-    description: Advanced automatic suggestions only, not required for manual password SSH. Incomplete setup keeps the dashboard available. Runtime identity can provide SSH reachability without phase enrollment. Never enter an account password in these options.
+  mac:
+    name: Mac connection
+    description: One profile for this Mac. Enter its LAN hostname, shared SSH port and username here. Add its optional Tailscale hostname or IP address for fresh running checks. Automatic checks never use a login password; enter that only in Connect with SSH. Server identity confirmation is separate from client-key authentication, which is not required.
+  automatic:
+    name: Advanced FileVault preboot suggestions
+    description: Optional phase-specific server identities, independent of the normal Tailscale running check. Leave unenrolled until supervised preboot evidence exists. Missing enrollment is a setup state, not an invalid connection. These are server public identities, not client authentication keys or login passwords.
 network:
   8080/tcp: Read-only bearer status API. Keep host mapping disabled; use the app's actual internal hostname for HA Core pairing.

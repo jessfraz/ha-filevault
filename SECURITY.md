@@ -84,21 +84,39 @@ and identity checks have five-second limits; authentication has a 30-second
 limit. A cancelled task cannot create an automatic retry. A failed or ambiguous
 attempt needs a new explicit user action after applicable limits.
 
-## Status and optional phase classification
+## Shared profile, runtime evidence, and migration
 
-SSH online means a trusted cryptographic identity is reachable; it does not
-prove FileVault state. Runtime identity observation does not require enabling
-phase recovery or marking phase enrollment verified. A key observed during
-normal runtime is not automatically exclusive to that phase.
+One mac profile supplies the LAN unlock target, optional Tailscale target, one
+SSH port and username. No second manual or automatic authentication group
+exists. Normal checks use no account password or client private key. Server
+identity verification remains mandatory and separate from account login.
 
-The optional automatic profile requires independently trusted, distinct,
-stable, phase-exclusive preboot/runtime identities and supervised calibration.
-There is no generic banner detector or shared-key fallback. Repeated preboot
-proof and a fresh retained-connection rekey gate automatic requests. A separate
-pinned normal-runtime proof gates Running on that path. Invalid or incomplete
-phase options show a safe error and disable suggestions while leaving the
-authenticated dashboard and valid manual path available. They never fabricate
-manual_enrollment_verified or rewrite target settings.
+A fresh SSH key exchange at the configured Tailscale address must resolve to a
+tailnet-range socket peer and match the same trusted server identity store as
+LAN manual SSH. Cached controller online state, an SSH banner, an untrusted
+key, a LAN alias, or stale evidence cannot establish Running. A live verified
+Tailscale response is positive normal-runtime evidence from the existing
+normal-OS Tailscale service; desktop login and application health are separate.
+Actual app-container reachability and cold-boot behavior need deployed checks.
+
+Failure never proves FileVault locked or power off. DNS failure, timeout,
+missing identity verification, unreachable peer, and stale evidence retain
+separate safe statuses. Manual LAN login remains available independently.
+No new service, credential, tailnet membership, ACL, or network grant is added.
+
+Trusted LAN SSH alone remains SSH online. Optional advanced phase detection
+still requires distinct phase-exclusive identities and supervised calibration.
+Missing preboot enrollment is a setup note, not an invalid normal connection.
+Normal runtime never fabricates manual_enrollment_verified or preboot evidence.
+
+Legacy migration compares every specified target and rejects divergence before
+any transport can operate. Canonical options have one mac profile. The explicit
+migration command preserves input, creates one new mode-0600 output, refuses
+unsupported credential fields, and never prints values. Existing read-only
+integration credentials may be present in exports; both files stay private.
+Supervisor filters unknown schema fields before writing runtime options, so
+HA upgrades require preflight export/migration and are marked breaking to
+prevent unattended option loss. No app-side Supervisor mutation grant is used.
 
 ## Persistence and deployment
 
