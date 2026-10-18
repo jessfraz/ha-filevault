@@ -1,20 +1,55 @@
 {
+  "title": "FileVault",
   "config": {
     "step": {
       "user": {
-        "title": "Connect FileVault status",
-        "description": "Use a read-only service credential. Never enter a Mac password here.",
+        "title": "Connect to FileVault",
+        "menu_options": {
+          "app": "Connect the Home Assistant app",
+          "standalone": "Connect a standalone service"
+        }
+      },
+      "app": {
+        "title": "Start the FileVault app",
+        "description": "Install and start FileVault in Settings \u2192 Apps, then select Submit to find it. The custom integration must be installed and Home Assistant restarted first. Standalone installations can use the standalone service option instead."
+      },
+      "hassio_confirm": {
+        "title": "Connect the FileVault app",
+        "description": "Connect this app to Home Assistant? Connection credentials are exchanged privately through Supervisor. No token setup is needed."
+      },
+      "standalone": {
+        "title": "Connect a standalone service",
+        "description": "Enter the service origin and its integration credential. These details are needed only when the service runs outside the Home Assistant app. Never enter a Mac password here.",
         "data": {
-          "backend_url": "Backend origin",
-          "token": "Read-only status token"
+          "backend_url": "Service URL",
+          "token": "API credential"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect the service",
+        "description": "Enter the service origin and replacement credential. Home Assistant app connections normally obtain their credentials automatically.",
+        "data": {
+          "backend_url": "Service URL",
+          "token": "API credential"
         }
       }
     },
     "error": {
-      "cannot_connect": "Cannot read the status service"
+      "cannot_connect": "Cannot connect to the FileVault service. Check that it is running and try again.",
+      "invalid_auth": "The service rejected its credential.",
+      "integration_required": "This app connection needs an integration credential. Use the credential supplied by the FileVault app.",
+      "invalid_url": "Enter an HTTP or HTTPS origin without credentials, path, query, or fragment.",
+      "app_not_found": "The FileVault app has not announced a connection. Install or start it, then try again.",
+      "supervisor_required": "This Home Assistant installation does not manage apps. Connect a standalone service instead.",
+      "supervisor_unavailable": "Cannot contact Home Assistant Supervisor. Try again after it is available.",
+      "multiple_apps": "Several FileVault apps are available. Use the discovered integration card for the app you want."
     },
     "abort": {
-      "single_instance_allowed": "Only one instance is supported"
+      "single_instance_allowed": "Only one FileVault backend can be configured.",
+      "reauth_successful": "The service credential was updated.",
+      "invalid_discovery": "The app announced incomplete or invalid connection details. Restart or update the app and try again.",
+      "already_configured": "This FileVault app is already connected.",
+      "unique_id_mismatch": "This is a different app from the existing connection."
     }
   },
   "entity": {

@@ -102,13 +102,28 @@
           "version"
         ],
         "type": "object"
+      },
+      "SystemReport": {
+        "properties": {
+          "credential_role": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "credential_role",
+          "version"
+        ],
+        "type": "object"
       }
     }
   },
   "info": {
     "description": "Status and bounded ephemeral recovery requests. Real unlock disabled until verified preboot transport is available.",
     "title": "FileVault API",
-    "version": "0.0.0"
+    "version": "0.1.0-alpha.1"
   },
   "openapi": "3.0.3",
   "paths": {
@@ -266,6 +281,32 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StatusReport"
+                }
+              }
+            },
+            "description": "successful operation"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "tags": [
+          "system"
+        ]
+      }
+    },
+    "/v1/system": {
+      "get": {
+        "operationId": "system",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemReport"
                 }
               }
             },

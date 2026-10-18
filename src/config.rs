@@ -30,17 +30,54 @@ pub struct Options {
     pub allowed_user_ids: Vec<String>,
     pub frontend_origin: Option<String>,
     pub ssh_probe: Option<crate::transport::ProbeConfig>,
+    pub ssh_recovery: Option<crate::ssh_recovery::RecoveryConfig>,
+    /// Separate read-only service credential, never a Mac password.
+    pub status_token: Option<String>,
+    #[serde(default)]
+    pub auto_pairing: bool,
 }
 
 impl Config {
     pub fn load() -> Result<(Self, Options)> {
-        let config = Self::parse();
-        let options = if let Some(path) = &config.options {
+        let mut config = Self::parse();
+        let mut options: Options = if let Some(path) = &config.options {
             let bytes = std::fs::read(path).map_err(|_| anyhow::anyhow!("read app options"))?;
             serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid app options"))?
         } else {
             Options::default()
         };
+        options.frontend_origin = options.frontend_origin.filter(|origin| !origin.is_empty());
+        if config.status_token.is_none() {
+            config.status_token = options
+                .status_token
+                .take()
+                .filter(|token| !token.is_empty());
+        }
+        if options.auto_pairing && config.openapi.is_none() {
+            ensure!(
+                std::env::var_os("SUPERVISOR_TOKEN").is_some_and(|v| !v.is_empty()),
+                "automatic pairing requires Supervisor"
+            );
+            ensure!(
+                config.status_token.is_none(),
+                "choose automatic or explicit status credential"
+            );
+            let path = config
+                .options
+                .as_ref()
+                .ok_or_else(|| anyhow::anyhow!("automatic pairing requires app options"))?;
+            config.status_token = Some(
+                crate::credentials::Credentials::load_or_create(
+                    &path.with_file_name("credentials.json"),
+                )?
+                .integration,
+            );
+        }
+        ensure!(
+            !(options.ssh_probe.is_some()
+                && options.ssh_recovery.as_ref().is_some_and(|r| r.enabled)),
+            "choose one SSH profile"
+        );
         if let Some(origin) = &options.frontend_origin {
             let uri: http::Uri = origin
                 .parse()

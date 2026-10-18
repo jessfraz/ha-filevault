@@ -33,7 +33,6 @@ struct Pending {
 struct Inner {
     guard: AttemptGuard,
     pending: HashMap<String, Pending>,
-    previous: Option<(String, Instant)>,
 }
 
 pub struct Controller {
@@ -57,7 +56,6 @@ impl Controller {
             inner: Arc::new(Mutex::new(Inner {
                 guard: AttemptGuard::new(origin.clone(), started),
                 pending: HashMap::new(),
-                previous: None,
             })),
             preparing: Semaphore::new(1),
             origin,
@@ -72,7 +70,7 @@ impl Controller {
     }
 
     pub fn ready(&self) -> bool {
-        self.transport.unlock_ready()
+        self.transport.unlock_ready() && !self.origin.is_empty()
     }
     pub fn valid_origin(&self, origin: &str) -> bool {
         !self.origin.is_empty() && self.origin == origin
@@ -83,7 +81,6 @@ impl Controller {
             .await
             .unwrap_or(false)
         {
-            self.inner.lock().await.previous = None;
             return decide(Evidence {
                 age_seconds: Some(0.0),
                 runtime_verified: true,
@@ -92,30 +89,27 @@ impl Controller {
         }
         let result = tokio::time::timeout(CONNECT_LIMIT, self.transport.open()).await;
         let Ok(Ok(session)) = result else {
-            self.inner.lock().await.previous = None;
             return decide(Evidence::default());
         };
         let observation = session.observation();
-        let mut inner = self.inner.lock().await;
-        let age = inner
-            .previous
-            .as_ref()
-            .filter(|(id, _)| id == &observation.identity)
-            .map(|(_, at)| at.elapsed().as_secs_f64());
-        if observation.state == State::VerifiedPreboot && self.ready() {
-            inner.previous = Some((observation.identity, Instant::now()));
-            decide(Evidence {
-                age_seconds: Some(0.0),
-                preboot_verified: true,
-                host_key_pinned: true,
-                prior_preboot_age_seconds: age,
-                busy: !inner.guard.available(Instant::now()),
-                ..Default::default()
-            })
-        } else {
-            inner.previous = None;
-            decide(Evidence::default())
+        if observation.state != State::VerifiedPreboot || !self.ready() {
+            return decide(Evidence::default());
         }
+        drop(session);
+        let repeated = tokio::time::timeout(CONNECT_LIMIT, self.transport.open()).await;
+        let Ok(Ok(repeated)) = repeated else {
+            return decide(Evidence::default());
+        };
+        let proof = repeated.observation();
+        let inner = self.inner.lock().await;
+        decide(Evidence {
+            age_seconds: Some(0.0),
+            preboot_verified: proof.state == State::VerifiedPreboot,
+            host_key_pinned: proof.identity == observation.identity,
+            prior_preboot_age_seconds: Some(0.0),
+            busy: !inner.guard.available(Instant::now()),
+            ..Default::default()
+        })
     }
 
     pub async fn challenge(&self, user: &str) -> Result<Challenge, Failure> {
@@ -227,20 +221,20 @@ impl Controller {
         // The secret has been consumed and dropped before any runtime polling.
         let outcome = match result {
             Err(_) => Outcome::TimedOut,
-            Ok(Err(_)) => Outcome::Rejected,
-            Ok(Ok(())) => {
+            Ok(Err(Failure::DeliveryUnknown)) | Ok(Ok(())) => {
                 let confirmation = async {
                     loop {
                         if self.transport.runtime_ready().await {
                             return Outcome::Running;
                         }
-                        tokio::time::sleep(Duration::from_millis(250)).await;
+                        tokio::time::sleep(Duration::from_secs(2)).await;
                     }
                 };
                 tokio::time::timeout(self.completion_limit, confirmation)
                     .await
                     .unwrap_or(Outcome::Booting)
             }
+            Ok(Err(_)) => Outcome::Rejected,
         };
         self.inner.lock().await.guard.finish();
         outcome

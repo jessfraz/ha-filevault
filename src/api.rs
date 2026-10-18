@@ -59,6 +59,31 @@ pub struct StatusReport {
     pub transport_ready: bool,
 }
 
+#[derive(Serialize, JsonSchema)]
+pub struct SystemReport {
+    version: &'static str,
+    credential_role: &'static str,
+}
+
+#[endpoint {method=GET,path="/v1/system",tags=["system"]}]
+async fn system(
+    r: RequestContext<Arc<Context>>,
+) -> Result<HttpResponseHeaders<HttpResponseOk<SystemReport>>, HttpError> {
+    authenticate(&r)?;
+    let mut response = HttpResponseHeaders::new_unnamed(HttpResponseOk(SystemReport {
+        version: env!("CARGO_PKG_VERSION"),
+        credential_role: if matches!(r.context().access, Access::Status { .. }) {
+            "integration"
+        } else {
+            "ha_user"
+        },
+    }));
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().unwrap());
+    Ok(response)
+}
+
 fn deny(code: Status, message: &'static str) -> HttpError {
     HttpError::for_client_error(None, code, message.into())
 }
@@ -331,6 +356,7 @@ async fn brand(r: RequestContext<Arc<Context>>) -> Result<Response<Body>, HttpEr
 pub fn description() -> Result<ApiDescription<Arc<Context>>> {
     let mut api = ApiDescription::new();
     api.register(status).context("register status")?;
+    api.register(system).context("register pairing metadata")?;
     api.register(prepare).context("register session")?;
     api.register(unlock).context("register attempt")?;
     api.register(index).context("register dashboard")?;

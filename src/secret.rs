@@ -18,4 +18,10 @@ impl Secret {
     pub fn matches(&self, expected: &[u8]) -> bool {
         bool::from(self.0.as_slice().ct_eq(expected))
     }
+
+    /// Move into russh's password method, which zeroizes its owned String on drop.
+    /// Only the reviewed SSH adapter may consume the bytes this way.
+    pub(crate) fn into_password(mut self) -> String {
+        String::from_utf8(std::mem::take(&mut *self.0)).expect("validated UTF-8")
+    }
 }

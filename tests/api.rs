@@ -34,6 +34,17 @@ async fn status_is_authenticated_no_store_and_never_claims_unlock_ready() {
     assert_eq!(body["decision"]["state"], "unknown");
     assert_eq!(body["decision"]["unlock_available"], false);
     assert_eq!(body["transport_ready"], false);
+    let metadata: serde_json::Value = client
+        .get(format!("{url}/v1/system"))
+        .bearer_auth("test-only-status-token")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(metadata["credential_role"], "integration");
+    assert!(metadata.get("token").is_none());
     assert_eq!(
         client
             .post(format!("{url}/v1/unlock"))

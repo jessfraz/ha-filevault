@@ -1,22 +1,51 @@
 name: FileVault
-version: "0.0.0"
+version: "0.1.0-alpha.1"
 slug: filevault
-description: FileVault recovery status for Home Assistant (development prototype)
+description: Experimental FileVault recovery with manually verified SSH phase identities
 url: https://github.com/jessfraz/ha-filevault
 arch:
   - amd64
   - aarch64
+image: ghcr.io/jessfraz/ha-filevault
 startup: application
-boot: manual
+boot: auto
 init: false
 ingress: true
 ingress_port: 8099
 panel_admin: true
-panel_icon: mdi:lock-open-outline
+panel_icon: mdi:safe-square-outline
+ports:
+  8080/tcp: null
+ports_description:
+  8080/tcp: Optional bearer-authenticated read-only status API; no host port by default
 environment:
   FILEVAULT_ENABLE_INGRESS: "true"
 options:
+  auto_pairing: true
   allowed_user_ids: []
+  frontend_origin: ""
+  status_token: ""
+  ssh_recovery:
+    enabled: false
+    host: ""
+    port: 22
+    username: ""
+    preboot_public_key: ""
+    runtime_public_key: ""
+    manual_enrollment_verified: false
 schema:
+  auto_pairing: bool
   allowed_user_ids:
     - str
+  frontend_origin: str
+  status_token: password
+  ssh_recovery:
+    enabled: bool
+    host: str
+    port: port
+    username: str
+    preboot_public_key: str
+    runtime_public_key: str
+    manual_enrollment_verified: bool
+discovery:
+  - filevault

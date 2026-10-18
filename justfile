@@ -15,9 +15,9 @@ rust:
 
 ha:
     uv sync --frozen
-    uv run --frozen ruff check custom_components tests_ha
-    uv run --frozen ruff format --check custom_components tests_ha
-    uv run --frozen ty check --project . --python .venv --python-version 3.14 --error-on-warning custom_components tests_ha
+    uv run --frozen ruff check custom_components tests_ha scripts/build-release-artifacts
+    uv run --frozen ruff format --check custom_components tests_ha scripts/build-release-artifacts
+    uv run --frozen ty check --project . --python .venv --python-version 3.14 --error-on-warning custom_components tests_ha scripts/build-release-artifacts
     uv run --frozen pytest tests_ha
 
 web:

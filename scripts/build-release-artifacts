@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Package only committed public source; never copy runtime state."""
+
+import argparse
+import hashlib
+import json
+import subprocess
+import tomllib
+import zipfile
+from pathlib import Path
+
+root = Path(__file__).resolve().parents[1]
+parser = argparse.ArgumentParser()
+parser.add_argument("--output", type=Path, required=True)
+args = parser.parse_args()
+
+
+def git(*argv: str) -> bytes:
+    return subprocess.check_output(["git", *argv], cwd=root)
+
+
+if git("status", "--porcelain").strip():
+    raise SystemExit("Commit and review the candidate before packaging")
+version = tomllib.loads(git("show", "HEAD:Cargo.toml").decode())["package"]["version"]
+if version == "0.0.0":
+    raise SystemExit("Unreleased scaffold version")
+commit = git("rev-parse", "HEAD").decode().strip()
+output = args.output.resolve()
+output.mkdir(parents=True, exist_ok=True)
+source = output / f"ha-filevault-{version}.tar.gz"
+subprocess.run(
+    [
+        "git",
+        "archive",
+        "--format=tar.gz",
+        "--prefix=ha-filevault/",
+        "--output=" + str(source),
+        "HEAD",
+    ],
+    cwd=root,
+    check=True,
+)
+integration = output / f"filevault-integration-{version}.zip"
+paths = (
+    git("ls-files", "-z", "custom_components/filevault")
+    .decode()
+    .strip("\0")
+    .split("\0")
+)
+with zipfile.ZipFile(integration, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    for path in sorted(paths + ["LICENSE"]):
+        if not path or path.startswith("/") or ".." in Path(path).parts:
+            raise SystemExit("Invalid archive member")
+        info = zipfile.ZipInfo(path, date_time=(2020, 1, 1, 0, 0, 0))
+        info.compress_type = zipfile.ZIP_DEFLATED
+        info.external_attr = 0o100644 << 16
+        archive.writestr(info, git("show", "HEAD:" + path))
+provenance = output / "SOURCE.json"
+provenance.write_text(
+    json.dumps(
+        {
+            "repository": "https://github.com/jessfraz/ha-filevault",
+            "version": version,
+            "commit": commit,
+            "status": (
+                "experimental; supervised phase enrollment required; "
+                "hardware not validated"
+            ),
+        },
+        indent=2,
+    )
+    + "\n"
+)
+checksums = output / "SHA256SUMS"
+checksums.write_text(
+    "".join(
+        f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n"
+        for p in [source, integration, provenance]
+    )
+)
+print(f"Packaged committed public source {commit} for {version}")

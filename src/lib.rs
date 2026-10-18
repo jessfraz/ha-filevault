@@ -1,7 +1,10 @@
 pub mod api;
 pub mod config;
 pub mod controller;
+pub mod credentials;
 pub mod guard;
 pub mod policy;
 pub mod secret;
+pub mod ssh_recovery;
+pub mod supervisor;
 pub mod transport;

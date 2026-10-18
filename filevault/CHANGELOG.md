@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.1.0-alpha.1
 
-- Add authenticated status, an ephemeral recovery UI, request validation,
-  pinned SSH handshake probes, and a read-only HA adapter.
-- Include app and integration brand assets and entity icons.
-- Keep real preboot detection and password authentication disabled.
-- Add fail-closed state and one-attempt request policies.
-- Leave SSH transport and password submission unavailable.
+- Add a manually calibrated SSH phase-identity profile, one password method,
+  fresh same-connection key exchange, and separate pinned runtime confirmation.
+- Reject unverified, shared, changed, or certificate identities; keep recovery
+  disabled by default. No general preboot signature or real Mac validation.
+- Add native multiarch HA app packaging, explicit ingress/user/origin options,
+  an optional internal read-only status API, icons, and source release
+  artifacts.
+- Exercise authentication, disconnects, rejection, cancellation, identity
+  conflicts, and absence of runtime proof with synthetic SSH servers.

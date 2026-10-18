@@ -1,9 +1,10 @@
 # Security design and release gates
 
-This local prototype has an ephemeral request path tested with dummy values.
-The production transport cannot send a password and always reports unknown.
-The tests do not establish successful FileVault unlock. Do not submit a Mac
-password to the prototype.
+This experimental implementation is tested only with synthetic SSH peers.
+Recovery is disabled by default. A manually verified profile can enable one
+SSH password attempt only when independently trusted preboot and runtime host
+keys are distinct. No generic Apple preboot signature is assumed. Shared keys
+are unsupported, and actual Mac behavior has not been validated.
 
 ## Credential boundary
 
@@ -70,8 +71,11 @@ clients cannot be absolutely ruled out. Do not claim guaranteed erasure.
 
 Before deploying or publishing a working implementation, review:
 
-1. A verified preboot detector, trusted key enrollment, exact authentication
-   conversation, and identity-bound normal-runtime confirmation.
+1. Supervised phase-key calibration for the exact Mac and OS: independently
+   trusted, distinct, stable preboot/runtime keys; compatible pre-authentication
+   rekey and password authentication; expected disconnect and runtime
+   transition.
+   Leave the manual verification gate false if any fact is unproven.
 2. The full HTTP/proxy/SSH implementation and dependency supply chain.
 3. Negative tests for identity mismatch, CSRF, replay, expiry, concurrency,
    ambiguous states, timeouts, repeated prompts, and false success.
@@ -86,3 +90,48 @@ No managed private vulnerability-reporting channel is configured. Do not
 post credentials, deployment details, or exploit material in a public pull
 request. Establish a private disclosure channel before a working recovery
 release.
+
+## Implemented phase-identity profile
+
+The profile is an administrator's manually calibrated trust statement. A pin
+alone never discovers phase. Set `manual_enrollment_verified` only after
+independent supervised evidence proves the configured keys are exclusive to
+preboot and normal runtime. Recalibrate after OS or SSH identity changes.
+There is no shared-key fallback, banner matching, key scanning, or automatic
+acceptance. Invalid or identical keys fail configuration validation.
+
+The adapter verifies the key-exchange signature and exact pinned public key,
+rejects certificates, and rekeys the retained connection before one password
+method. It never requests a shell, runs a command, opens a PTY, forwards an
+agent, or falls back to keyboard-interactive or another authentication method.
+Its socket is closed when the attempt is dropped or cancelled.
+
+Credential bytes move into russh's owned password method, which zeroizes its
+String on drop and redacts its Debug output. The application installs no
+input-bearing logger. Library, HTTP, browser, and proxy copies remain a
+best-effort boundary, not guaranteed erasure or proof about deployed proxies.
+
+After success or an ambiguous disconnect, the password is not reused. Only a
+fresh handshake to the separately enrolled normal-runtime key can produce
+Running. This means normal SSH runtime availability, not desktop login or all
+application health. Without that proof, the result stays booting/unknown.
+
+A source prerelease may publish synthetic validation and disabled-by-default
+packaging. It must say hardware behavior is unvalidated and must not claim
+production recovery readiness. Installation and supervised real-password tests
+remain separate actions with concrete approval and the user present.
+
+## Persistent pairing access
+
+The app's automatic pairing option creates one read-only service credential in
+owner-only `/data/credentials.json` at approved startup. Atomic publication
+preserves it across restarts and concurrent starts. Only that token and the
+Supervisor-provided internal origin enter authenticated discovery. Supervisor
+and HA Core consequently gain read-only status access, not unlock authority.
+
+HA confirmation precedes the backend credential probe and config-entry write;
+reauthentication rediscovers the same app and confirms replacement. A separate
+owner API credential is unnecessary and is not generated. The optional manual
+status token is for standalone setup with automatic pairing off. None of these
+persistent service credentials is a Mac password. Include this persistent
+access and credential creation in the concrete installation approval.

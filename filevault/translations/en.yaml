@@ -1,4 +1,18 @@
 configuration:
+  auto_pairing:
+    name: Automatic Home Assistant pairing
+    description: On app startup, create or reuse an owner-only read-only service credential and announce it privately through Supervisor. Confirm the discovered integration in Home Assistant before its credential is probed or saved. Never uses a Mac password.
   allowed_user_ids:
-    name: Allowed Home Assistant users
-    description: Explicit user IDs allowed to open the status UI. Empty denies access.
+    name: Allowed Home Assistant user IDs
+    description: Only these authenticated users can open the app. An empty list denies access.
+  frontend_origin:
+    name: Home Assistant HTTPS origin
+    description: Exact browser origin without a path or trailing slash. Required for recovery requests.
+  status_token:
+    name: Read-only status API token
+    description: Optional service credential of 32 to 256 characters, shared with the status integration. Never enter a Mac password here. Empty disables the separate API.
+  ssh_recovery:
+    name: Manually verified SSH phase profile
+    description: Leave disabled and unverified until supervised calibration proves independently trusted, distinct preboot and runtime host keys. Shared phase keys are unsupported. Never enter a password in these options.
+network:
+  8080/tcp: Read-only bearer status API. Keep host mapping disabled; use the app's actual internal hostname for HA Core pairing.

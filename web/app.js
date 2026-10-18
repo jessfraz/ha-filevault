@@ -31,14 +31,14 @@ function render(report) {
   byId("app-version").textContent = report?.version ?? "";
   byId("transport").textContent = report?.transport_ready === true
     ? (canUnlock ? "The verified Mac is ready for one recovery attempt." : "Recovery is available only while the Mac is verified as locked.")
-    : "Unlock is disabled in this development build.";
+    : "Recovery is unavailable until this Mac is verified.";
 }
 
 async function refresh() {
   if (pending) return;
   pending = true;
   const timeout = new AbortController();
-  const timer = setTimeout(() => timeout.abort(), 5_000);
+  const timer = setTimeout(() => timeout.abort(), 18_000);
   try {
     const response = await fetch("v1/status", {
       cache: "no-store", credentials: "same-origin", signal: timeout.signal,
@@ -67,7 +67,7 @@ unlock.addEventListener("click", async () => {
   const abort = new AbortController();
   preparation = abort;
   unlock.disabled = true;
-  const timer = setTimeout(() => abort.abort(), 12_000);
+  const timer = setTimeout(() => abort.abort(), 18_000);
   try {
     const response = await fetch("v1/session", {
       method: "POST", cache: "no-store", credentials: "same-origin", signal: abort.signal,

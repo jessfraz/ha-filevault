@@ -15,6 +15,7 @@ pub enum Failure {
     Unverified,
     Timeout,
     Rejected,
+    DeliveryUnknown,
 }
 
 #[derive(Clone)]
@@ -77,8 +78,9 @@ impl SshProbe {
     }
 }
 
-struct PinnedKey {
+pub(crate) struct PinnedKey {
     key: PublicKey,
+    epoch: tokio::sync::watch::Sender<u64>,
 }
 impl client::Handler for PinnedKey {
     type Error = russh::Error;
@@ -90,10 +92,92 @@ impl client::Handler for PinnedKey {
         // would silently accept an unvalidated certificate envelope.
         Ok(offered.certificate().is_none() && offered.public_key() == self.key)
     }
+
+    async fn kex_done(
+        &mut self,
+        _shared_secret: Option<&[u8]>,
+        _names: &russh::Names,
+        _session: &mut client::Session,
+    ) -> Result<(), Self::Error> {
+        // Observe completion only. Never retain or log KEX material.
+        self.epoch.send_modify(|value| *value += 1);
+        Ok(())
+    }
+}
+
+struct ShutdownOnDrop(std::net::TcpStream);
+impl Drop for ShutdownOnDrop {
+    fn drop(&mut self) {
+        let _ = self.0.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+pub(crate) struct Connection {
+    pub handle: client::Handle<PinnedKey>,
+    epoch: tokio::sync::watch::Receiver<u64>,
+    _shutdown: ShutdownOnDrop,
+}
+impl Connection {
+    pub async fn recheck(&mut self) -> Result<(), Failure> {
+        if self.handle.is_closed() {
+            return Err(Failure::Unavailable);
+        }
+        self.epoch.borrow_and_update();
+        self.handle
+            .rekey_soon()
+            .await
+            .map_err(|_| Failure::Unavailable)?;
+        self.epoch
+            .changed()
+            .await
+            .map_err(|_| Failure::Unavailable)?;
+        if self.handle.is_closed() {
+            return Err(Failure::Unavailable);
+        }
+        Ok(())
+    }
+}
+
+pub(crate) async fn connect_pinned(
+    host: &str,
+    port: u16,
+    key: &PublicKey,
+) -> Result<Connection, Failure> {
+    let connection = async {
+        let stream = tokio::net::TcpStream::connect((host, port))
+            .await
+            .map_err(|_| Failure::Unavailable)?;
+        let stream = stream.into_std().map_err(|_| Failure::Unavailable)?;
+        let shutdown = ShutdownOnDrop(stream.try_clone().map_err(|_| Failure::Unavailable)?);
+        let stream = tokio::net::TcpStream::from_std(stream).map_err(|_| Failure::Unavailable)?;
+        let (epoch_tx, epoch) = tokio::sync::watch::channel(0);
+        let config = client::Config {
+            inactivity_timeout: Some(Duration::from_secs(120)),
+            ..Default::default()
+        };
+        let handle = client::connect_stream(
+            Arc::new(config),
+            stream,
+            PinnedKey {
+                key: key.clone(),
+                epoch: epoch_tx,
+            },
+        )
+        .await
+        .map_err(|_| Failure::Identity)?;
+        Ok(Connection {
+            handle,
+            epoch,
+            _shutdown: shutdown,
+        })
+    };
+    tokio::time::timeout(Duration::from_secs(5), connection)
+        .await
+        .map_err(|_| Failure::Timeout)?
 }
 
 struct ProbeSession {
-    _handle: client::Handle<PinnedKey>,
+    _connection: Connection,
     identity: String,
 }
 impl Session for ProbeSession {
@@ -115,25 +199,9 @@ impl Session for ProbeSession {
 impl Transport for SshProbe {
     fn open(&self) -> FutureResult<'_, Result<Box<dyn Session>, Failure>> {
         Box::pin(async move {
-            let config = client::Config {
-                inactivity_timeout: Some(Duration::from_secs(5)),
-                ..Default::default()
-            };
-            let handle = tokio::time::timeout(
-                Duration::from_secs(5),
-                client::connect(
-                    Arc::new(config),
-                    (self.config.host.as_str(), self.config.port),
-                    PinnedKey {
-                        key: self.key.clone(),
-                    },
-                ),
-            )
-            .await
-            .map_err(|_| Failure::Timeout)?
-            .map_err(|_| Failure::Identity)?;
+            let connection = connect_pinned(&self.config.host, self.config.port, &self.key).await?;
             Ok(Box::new(ProbeSession {
-                _handle: handle,
+                _connection: connection,
                 identity: self
                     .key
                     .fingerprint(russh::keys::HashAlg::Sha256)

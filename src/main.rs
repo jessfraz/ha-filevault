@@ -3,6 +3,8 @@ use filevault::{
     api::{self, Access, Context},
     config::Config,
     controller::Controller,
+    ssh_recovery::SshRecovery,
+    supervisor::Supervisor,
     transport::{Disabled, SshProbe, Transport},
 };
 use sha2::{Digest, Sha256};
@@ -18,7 +20,14 @@ async fn main() -> Result<()> {
         )?;
         return Ok(());
     }
-    let transport: Arc<dyn Transport> = if let Some(probe) = options.ssh_probe {
+    let transport: Arc<dyn Transport> = if let Some(recovery) =
+        options.ssh_recovery.filter(|r| r.enabled)
+    {
+        Arc::new(
+            SshRecovery::new(recovery)
+                .map_err(|_| anyhow::anyhow!("invalid SSH recovery profile"))?,
+        )
+    } else if let Some(probe) = options.ssh_probe {
         Arc::new(
             SshProbe::new(probe).map_err(|_| anyhow::anyhow!("invalid SSH probe configuration"))?,
         )
@@ -30,6 +39,18 @@ async fn main() -> Result<()> {
         options.frontend_origin.unwrap_or_default(),
         std::time::Instant::now(),
     ));
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let pairing = if options.auto_pairing {
+        if let (Some(supervisor), Some(token)) =
+            (Supervisor::from_environment()?, config.status_token.clone())
+        {
+            Some(tokio::spawn(supervisor.run(token, stopped)))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     let status = config
         .status_token
         .map(|token| {
@@ -81,6 +102,12 @@ async fn main() -> Result<()> {
             .close()
             .await
             .map_err(|_| anyhow::anyhow!("close ingress listener"))?;
+    }
+    let _ = stop.send(true);
+    if let Some(pairing) = pairing {
+        pairing
+            .await
+            .map_err(|_| anyhow::anyhow!("close app discovery"))?;
     }
     Ok(())
 }
