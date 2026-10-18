@@ -1,0 +1,89 @@
+blueprint:
+  name: FileVault needs attention
+  description: >-
+    Notify after a FileVault status needs attention for a sustained period.
+    Unknown or unavailable does not prove the Mac is locked or powered off.
+    Notifications require manual review; no password or recovery action is used.
+    Repeated changes are suppressed during the cooldown. Attribute-only updates
+    and initial entity creation do not notify. Debounce resets on automation
+    reload; cooldown uses HA's automation last-triggered timestamp.
+  domain: automation
+  source_url: https://github.com/jessfraz/ha-filevault/blob/main/blueprints/automation/filevault/needs_attention.yaml
+  homeassistant:
+    min_version: 2026.10.0
+  input:
+    status_entity:
+      name: FileVault status sensor
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              integration: filevault
+    debounce:
+      name: Sustained status duration
+      default:
+        minutes: 2
+      selector:
+        duration:
+    cooldown_minutes:
+      name: Notification cooldown (minutes)
+      default: 30
+      selector:
+        number:
+          min: 1
+          max: 1440
+          mode: box
+    notify_actions:
+      name: Notification actions
+      description: >-
+        Choose notification actions only. Use {{ title }}, {{ message }} and
+        {{ status }} in their fields. Do not add recovery or power actions.
+      selector:
+        action:
+
+variables:
+  cooldown_minutes: !input cooldown_minutes
+
+triggers:
+  - trigger: state
+    entity_id: !input status_entity
+    to:
+      - verified_preboot
+      - ssh_reachable
+      - unknown
+      - unreachable
+      - unavailable
+    for: !input debounce
+
+conditions:
+  - condition: template
+    value_template: >-
+      {% set last = this.attributes.last_triggered | default(none) %}
+      {{ last is none or
+         as_timestamp(now()) - as_timestamp(last, 0) >= cooldown_minutes * 60 }}
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none and trigger.to_state is not none
+         and trigger.from_state.state != trigger.to_state.state }}
+
+actions:
+  - variables:
+      status: "{{ trigger.to_state.state }}"
+      title: FileVault needs attention
+  - variables:
+      message: >-
+        {% if status == 'verified_preboot' %}
+          A calibrated preboot observation is available. Open FileVault to
+          review a manual recovery attempt.
+        {% elif status == 'unavailable' %}
+          FileVault status is unavailable. The Mac's power and lock state are
+          unknown. Check the FileVault app and network.
+        {% else %}
+          No confirmed normal-runtime observation is available. The Mac may
+          need unlocking, or networking may be unavailable. Open FileVault
+          to check before taking action.
+        {% endif %}
+  - sequence: !input notify_actions
+
+mode: single
+max_exceeded: silent

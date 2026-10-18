@@ -1,13 +1,14 @@
 """Poll non-secret backend status using HA's shared client session."""
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from aiohttp import ClientError
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .client import FileVaultClient, InvalidAuth
 from .const import DOMAIN
@@ -27,10 +28,13 @@ class FileVaultCoordinator(DataUpdateCoordinator[Status]):
             always_update=False,
         )
         self.client = client
+        self.last_success_at: datetime | None = None
 
     async def _async_update_data(self) -> Status:
         try:
-            return await self.client.status()
+            result = await self.client.status()
+            self.last_success_at = dt_util.utcnow()
+            return result
         except InvalidAuth as err:
             raise ConfigEntryAuthFailed("Status credential rejected") from err
         except (ClientError, TimeoutError, ValueError) as err:

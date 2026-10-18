@@ -1,5 +1,5 @@
 name: FileVault
-version: "0.1.0-alpha.3"
+version: "0.1.0-alpha.4"
 slug: filevault
 breaking_versions:
   - "0.1.0-alpha.3"

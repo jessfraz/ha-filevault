@@ -509,6 +509,15 @@ async fn brand(r: RequestContext<Arc<Context>>) -> Result<Response<Body>, HttpEr
     content(include_str!("../web/brand.svg").into(), "image/svg+xml")
 }
 
+#[endpoint {method=GET,path="/brand-dark.svg",tags=["web"]}]
+async fn brand_dark(r: RequestContext<Arc<Context>>) -> Result<Response<Body>, HttpError> {
+    web_access(&r)?;
+    content(
+        include_str!("../web/brand-dark.svg").into(),
+        "image/svg+xml",
+    )
+}
+
 pub fn description() -> Result<ApiDescription<Arc<Context>>> {
     let mut api = ApiDescription::new();
     api.register(status).context("register status")?;
@@ -528,6 +537,7 @@ pub fn description() -> Result<ApiDescription<Arc<Context>>> {
         .context("register recovery client")?;
     api.register(style).context("register style")?;
     api.register(brand).context("register brand")?;
+    api.register(brand_dark).context("register dark brand")?;
     Ok(api)
 }
 

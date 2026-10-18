@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""Render the maintained SVG sources with librsvg; no generated design inputs."""
+
+import shutil
+import subprocess
+from pathlib import Path
+
+root = Path(__file__).resolve().parents[1]
+renderer = shutil.which("rsvg-convert")
+if renderer is None:
+    raise SystemExit("Install librsvg to provide rsvg-convert")
+brand = root / "custom_components/filevault/brand"
+for prefix, source in [("", "brand.svg"), ("dark_", "brand-dark.svg")]:
+    for size, suffix in [(256, ""), (512, "@2x")]:
+        subprocess.run(
+            [
+                renderer,
+                "--width",
+                str(size),
+                "--height",
+                str(size),
+                "--output",
+                str(brand / f"{prefix}icon{suffix}.png"),
+                str(root / "web" / source),
+            ],
+            check=True,
+        )
+shutil.copyfile(brand / "icon.png", root / "filevault/icon.png")
+shutil.copyfile(brand / "icon@2x.png", root / "filevault/logo.png")
+print("Rendered matching transparent light/dark integration and app branding")

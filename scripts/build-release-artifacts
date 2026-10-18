@@ -38,6 +38,16 @@ for app_path, integration_path, size in [
         size,
     ):
         raise SystemExit("Invalid brand PNG dimensions")
+for path, size in [
+    ("custom_components/filevault/brand/dark_icon.png", 256),
+    ("custom_components/filevault/brand/dark_icon@2x.png", 512),
+]:
+    asset = git("show", "HEAD:" + path)
+    if asset[:8] != b"\x89PNG\r\n\x1a\n" or struct.unpack(">II", asset[16:24]) != (
+        size,
+        size,
+    ):
+        raise SystemExit("Invalid dark brand PNG dimensions")
 output = args.output.resolve()
 output.mkdir(parents=True, exist_ok=True)
 source = output / f"ha-filevault-{version}.tar.gz"

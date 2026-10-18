@@ -5,6 +5,12 @@ The app uses managed /data, ingress 8099, and optional internal read-only API
 are no host mounts, privileged mode, Docker/Core API access, or broad Supervisor
 grants. Existing read-only integration pairing remains unchanged.
 
+The HACS integration also provides bounded Assist queries and redacted native
+diagnostics. Expose its status sensor to Assist to opt into the read-only tools.
+Import notification blueprints separately and select notification actions.
+See the repository README for setup. These features never send an unlock
+request or use a login password.
+
 ## Configure one Mac
 
 In Mac connection, set host to the LAN unlock hostname, port to its SSH port,

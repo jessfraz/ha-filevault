@@ -1,0 +1,75 @@
+blueprint:
+  name: FileVault runtime available again
+  description: >-
+    Notify when verified normal-runtime evidence returns after an attention
+    state and remains stable. This does not prove desktop login or application
+    health. Initial entity creation and attribute-only updates do not notify.
+    Cooldown suppresses flapping using HA's automation last-triggered timestamp.
+    Debounce resets on automation reload.
+  domain: automation
+  source_url: https://github.com/jessfraz/ha-filevault/blob/main/blueprints/automation/filevault/running_again.yaml
+  homeassistant:
+    min_version: 2026.10.0
+  input:
+    status_entity:
+      name: FileVault status sensor
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              integration: filevault
+    debounce:
+      name: Sustained running duration
+      default:
+        seconds: 30
+      selector:
+        duration:
+    cooldown_minutes:
+      name: Notification cooldown (minutes)
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 1440
+          mode: box
+    notify_actions:
+      name: Notification actions
+      description: >-
+        Choose notification actions only. Use {{ title }}, {{ message }} and
+        {{ status }} in their fields. No automatic recovery is performed.
+      selector:
+        action:
+
+variables:
+  cooldown_minutes: !input cooldown_minutes
+
+triggers:
+  - trigger: state
+    entity_id: !input status_entity
+    from:
+      - verified_preboot
+      - ssh_reachable
+      - unknown
+      - unreachable
+      - unavailable
+    to: running
+    for: !input debounce
+
+conditions:
+  - condition: template
+    value_template: >-
+      {% set last = this.attributes.last_triggered | default(none) %}
+      {{ last is none or
+         as_timestamp(now()) - as_timestamp(last, 0) >= cooldown_minutes * 60 }}
+
+actions:
+  - variables:
+      status: running
+      title: FileVault runtime available
+      message: >-
+        Fresh verified normal-runtime evidence is available again. Desktop
+        login and individual applications have not been checked.
+  - sequence: !input notify_actions
+
+mode: single
+max_exceeded: silent

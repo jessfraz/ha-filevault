@@ -1,5 +1,22 @@
 # Security boundaries
 
+## Read-only HA extensions
+
+Assist tools query the existing bounded status cache with no arguments.
+Entity exposure, active-user read permission and entry ownership are rechecked
+on each call. Unloaded entries, failed polls and stale/future observations fail
+closed. Neither tool calls a service, sends credentials, starts SSH or changes
+state. Unknown backend fields and raw message contents are discarded.
+
+Native diagnostics construct an allowlist instead of copying entry data and
+redacting known keys. Connection identities, messages, exceptions, credentials
+and unknown future fields are omitted. HA adds standard environment metadata
+outside this integration payload.
+
+Notification blueprints read an explicitly selected status entity and supply
+no recovery, password or power action. The action selector is for the user's
+notification actions. Ambiguous status never proves locked.
+
 Manual password SSH is a permanent feature, independent of automatic phase
 detection. Users configure a target and account, verify new or changed server
 identity through normal first-connection confirmation, then enter a password

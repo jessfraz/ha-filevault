@@ -282,7 +282,7 @@
   "info": {
     "description": "Status suggestions, verified-phase recovery, and explicitly confirmed manual SSH authentication to pinned targets. Authentication does not certify FileVault unlock.",
     "title": "FileVault API",
-    "version": "0.1.0-alpha.3"
+    "version": "0.1.0-alpha.4"
   },
   "openapi": "3.0.3",
   "paths": {
@@ -307,6 +307,24 @@
     "/app.js": {
       "get": {
         "operationId": "script",
+        "responses": {
+          "default": {
+            "content": {
+              "*/*": {
+                "schema": {}
+              }
+            },
+            "description": ""
+          }
+        },
+        "tags": [
+          "web"
+        ]
+      }
+    },
+    "/brand-dark.svg": {
+      "get": {
+        "operationId": "brand_dark",
         "responses": {
           "default": {
             "content": {

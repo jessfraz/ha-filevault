@@ -49,7 +49,13 @@ h1, h2, h3 { color: inherit; }
 .app-header, .recovery-layout, .app-footer { max-width: 1000px; padding: 32px; margin: auto; }
 .app-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-top: 36px; padding-bottom: 26px; border-bottom: 1px solid var(--line); }
 .wordmark { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; text-decoration: none; letter-spacing: -.2px; }
-.wordmark img { border-radius: 8px; }
+.brand-dark { display: none; }
+:root[data-theme="dark"] .brand-light { display: none; }
+:root[data-theme="dark"] .brand-dark { display: block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .brand-light { display: none; }
+  :root:not([data-theme="light"]) .brand-dark { display: block; }
+}
 .header-actions { display: flex; align-items: center; gap: 12px; }
 #theme { font-size: 11px; padding: 7px 9px; }
 .build-tag { font: 11px var(--mono); border: 1px solid var(--line); border-radius: 5px; padding: 5px 8px; color: var(--muted); }
@@ -64,7 +70,7 @@ h1, h2, h3 { color: inherit; }
 .recovery-card[data-state="running"] { --status-ink: var(--green-ink); --status-fill: var(--green-fill); --status-line: var(--green-line); }
 .recovery-card[data-state="verified_preboot"] { --status-ink: var(--blue-ink); --status-fill: var(--blue-fill); --status-line: var(--blue-line); }
 .status-art { display: grid; place-items: center; padding: 40px 28px; background: var(--status-fill); }
-.status-art img { border-radius: 28px; box-shadow: 0 8px 18px #00000012; }
+.status-art img { object-fit: contain; }
 .status-content { padding: 36px; align-self: center; }
 .status-content h2 { color: var(--status-ink); font-size: 40px; line-height: 1.1; font-weight: 500; letter-spacing: -1.3px; margin: 0 0 13px; }
 .status-content p.muted { font-size: 14px; max-width: 430px; margin: 0; }
@@ -111,7 +117,7 @@ input[type="password"] { width: 100%; border: 1px solid var(--line); border-radi
   .page-heading button { font-size: 11px; padding: 10px; }
   .recovery-card { grid-template-columns: 1fr; }
   .status-art { padding: 24px 0; }
-  .status-art img { width: 68px; height: 68px; border-radius: 18px; }
+  .status-art img { width: 68px; height: 68px; }
   .status-content { padding: 28px 24px; text-align: center; }
   .status-content h2 { font-size: 34px; }
   .connection-bar { flex-wrap: wrap; padding: 13px 16px; }

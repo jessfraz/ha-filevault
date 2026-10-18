@@ -13,7 +13,8 @@
   <body>
     <header class="app-header">
       <a class="wordmark" href="./" aria-label="FileVault home">
-        <img src="brand.svg" width="30" height="30" alt="">
+        <img class="brand-light" src="brand.svg" width="30" height="30" alt="">
+        <img class="brand-dark" src="brand-dark.svg" width="30" height="30" alt="">
         FileVault
       </a>
       <div class="header-actions"><button id="theme" type="button" class="quiet">Theme: Auto</button><span class="build-tag">Experimental</span></div>
@@ -33,7 +34,7 @@
       </section>
       <p id="setup-note" class="field-help" hidden></p>
       <section id="status-card" class="recovery-card" aria-labelledby="status-title" data-state="unknown">
-        <div class="status-art" aria-hidden="true"><img src="brand.svg" width="108" height="108" alt=""></div>
+        <div class="status-art" aria-hidden="true"><img class="brand-light" src="brand.svg" width="108" height="108" alt=""><img class="brand-dark" src="brand-dark.svg" width="108" height="108" alt=""></div>
         <div class="status-content">
           <p id="status-title" class="eyebrow">MAC STATUS</p>
           <h2 id="state">Unknown</h2>

@@ -1,7 +1,7 @@
 # FileVault
 
 Password-based SSH unlock for Home Assistant, with one Mac profile, an optional
-Tailscale running check, and optional boot-phase suggestions. The service follows
+Tailscale running check and optional boot-phase suggestions. It follows
 [Maintenance](https://github.com/jessfraz/ha-maintenance) and
 [Shipments](https://github.com/jessfraz/ha-packages): Rust/Dropshot, an embedded
 light/dark UI, HA ingress, and a read-only Python integration.
@@ -141,8 +141,8 @@ devices, Core API token, or broad Supervisor API. Pairing uses only standard
 self-info and discovery routes. Core dumps are disabled.
 
 The executor, remote ingress, and recovery controller must survive loss of the
-Mac. Review deployed proxy logging/buffering with dummy data before real password
-entry. The user enters the real password directly, with agent observation off.
+Mac. Review deployed proxy logging/buffering with dummy data before real
+password entry. The user enters it directly, with agent observation off.
 Do not use this app's first unvalidated recovery attempt as its own fallback.
 
 ## HACS integration and icons
@@ -163,6 +163,54 @@ through `/v1/system`, rejects owner credentials and redirects, and stores only
 the read-only service credential. It exposes one enum sensor and no SSH/unlock
 service, password-bearing entity, automation bridge, or transcript.
 
+## Ask Assist
+
+Expose the FileVault status sensor to Assist and use an agent with the Device
+control API enabled. Two explicit read-only tools are available:
+
+- `filevault__status`: latest status, freshness and capability flags.
+- `filevault__configuration_health`: capability flags and error/setup-note
+  counts.
+
+Both take no arguments. Each call rechecks exposure, the active HA user's read
+permission, and the loaded integration. They use the existing cache without a
+new network request. Failed polls or observations older than 30 seconds return
+unknown/unavailable. Connection identifiers, raw messages, tokens, host keys
+and passwords are excluded. Voice requests without a user context are refused.
+No model-provider account, credential, unlock or power tool is added. This uses
+HA's native [LLM tool platform](https://contributors.home-assistant.io/core/internals/llm-api/).
+
+## Native diagnostics
+
+Use **Download diagnostics** on FileVault in Devices & services. The integration
+returns an allowlist of status flags, observation age, configuration counts and
+entry state. Connection and credentials are redacted; entry data, titles,
+identifiers, unknown future fields, raw messages and exceptions are omitted.
+Downloading makes no backend request. HA adds its standard environment metadata
+around this integration payload.
+
+## Notification blueprints
+
+Import a blueprint in **Settings → Automations & scenes → Blueprints**, then
+choose the FileVault status sensor and notification actions. Nothing is
+installed or enabled automatically. The YAML is included in the source archive:
+
+- [Needs attention](blueprints/automation/filevault/needs_attention.yaml): notify
+  after two minutes of an attention state; cooldown defaults to 30 minutes.
+  Short flaps, attribute changes and initial entity creation stay quiet.
+- [Runtime available again](blueprints/automation/filevault/running_again.yaml):
+  notify after a transition to Running remains stable for 30 seconds, with a
+  configurable 10-minute cooldown.
+- [Daily status](blueprints/automation/filevault/daily_status.yaml): digest at a
+  chosen local time (08:00 by default). Running stays quiet unless enabled.
+  A two-hour cooldown suppresses repeated local times during DST fallback.
+
+Notification fields can use `{{ title }}`, `{{ message }}` and `{{ status }}`.
+Choose notification actions only. No blueprint uses a password, unlock request,
+restart or power-cycle action. Missing status never proves locked; Running does
+not prove desktop or application health. Debounce resets on automation reload;
+cooldown uses HA's `last_triggered` state.
+
 ## Development and release
 
 Use Rust stable, Node.js, Python 3.14, uv, and just. `nix develop` supplies the
@@ -171,6 +219,11 @@ reference tools. Run `just check`, `just security`, and `just container`.
 pytest, Rust tests/lints, browser checks, and native amd64/arm64 container
 smoke.
 All SSH tests use ephemeral loopback peers and synthetic credentials.
+
+With librsvg installed, run `scripts/render-brand` to regenerate transparent
+light/dark integration PNGs and matching app icon/logo from `web/brand.svg`
+and `web/brand-dark.svg`. Flat outlines and neutral fills match Shipments
+and Maintenance. No sibling assets are modified.
 
 After committing a reviewed candidate, package it with:
 

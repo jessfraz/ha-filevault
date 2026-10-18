@@ -8,6 +8,24 @@ class Status:
     state: str
     unlock_available: bool
     transport_ready: bool
+    manual_ready: bool | None = None
+    runtime_check: str = "unknown"
+    error_count: int | None = None
+    note_count: int | None = None
+
+
+def _message_count(data: dict[str, object], key: str) -> int | None:
+    """Count bounded messages without retaining their potentially private text."""
+    if key not in data:
+        return None
+    messages = data[key]
+    if (
+        not isinstance(messages, list)
+        or len(messages) > 32
+        or any(not isinstance(item, str) for item in messages)
+    ):
+        raise ValueError("Invalid configuration health")
+    return len(messages)
 
 
 def parse_status(data: object) -> Status:
@@ -21,7 +39,8 @@ def parse_status(data: object) -> Status:
     available = decision.get("unlock_available")
     ready = data.get("transport_ready")
     if (
-        state
+        not isinstance(state, str)
+        or state
         not in {
             "running",
             "ssh_reachable",
@@ -34,4 +53,30 @@ def parse_status(data: object) -> Status:
         or available != (state == "verified_preboot")
     ):
         raise ValueError("Invalid status decision")
-    return Status(state, available and ready, ready)
+    manual = data.get("manual_ready")
+    runtime = data.get("runtime_check", "unknown")
+    if (
+        (manual is not None and type(manual) is not bool)
+        or not isinstance(runtime, str)
+        or runtime
+        not in {
+            "unknown",
+            "not_configured",
+            "verified",
+            "identity_needed",
+            "unavailable",
+            "name_unavailable",
+            "timed_out",
+            "stale",
+        }
+    ):
+        raise ValueError("Invalid status health")
+    return Status(
+        state,
+        available and ready,
+        ready,
+        manual,
+        runtime,
+        _message_count(data, "configuration_errors"),
+        _message_count(data, "configuration_notes"),
+    )

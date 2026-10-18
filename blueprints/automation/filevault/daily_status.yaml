@@ -1,0 +1,79 @@
+blueprint:
+  name: FileVault daily status
+  description: >-
+    Send one status digest at a chosen local time. By default, a confirmed
+    running status is quiet. Unknown, offline and unavailable never prove
+    locked. A two-hour cooldown also suppresses a repeated local time during
+    daylight-saving fallback using HA's automation last-triggered timestamp.
+    The blueprint performs no recovery, login or power action.
+  domain: automation
+  source_url: https://github.com/jessfraz/ha-filevault/blob/main/blueprints/automation/filevault/daily_status.yaml
+  homeassistant:
+    min_version: 2026.10.0
+  input:
+    status_entity:
+      name: FileVault status sensor
+      selector:
+        entity:
+          filter:
+            - domain: sensor
+              integration: filevault
+    notification_time:
+      name: Local notification time
+      default: "08:00:00"
+      selector:
+        time:
+    include_running:
+      name: Also notify when running
+      default: false
+      selector:
+        boolean:
+    notify_actions:
+      name: Notification actions
+      description: >-
+        Choose notification actions only. Use {{ title }}, {{ message }} and
+        {{ status }} in their fields. Never put a password in an action.
+      selector:
+        action:
+
+variables:
+  status_entity: !input status_entity
+  include_running: !input include_running
+
+triggers:
+  - trigger: time
+    at: !input notification_time
+
+conditions:
+  - condition: template
+    value_template: >-
+      {% set last = this.attributes.last_triggered | default(none) %}
+      {{ last is none or as_timestamp(now()) - as_timestamp(last, 0) >= 7200 }}
+  - condition: template
+    value_template: >-
+      {{ states(status_entity) != 'running' or include_running }}
+
+actions:
+  - variables:
+      status: >-
+        {% set value = states(status_entity) %}
+        {{ value if value in ['running', 'verified_preboot', 'ssh_reachable',
+           'unknown', 'unreachable', 'unavailable'] else 'unknown' }}
+      title: FileVault daily status
+  - variables:
+      message: >-
+        {% if status == 'running' %}
+          Verified normal-runtime evidence is available. Desktop login and
+          individual applications have not been checked.
+        {% elif status == 'verified_preboot' %}
+          A calibrated preboot observation is available. Open FileVault to
+          review a manual recovery attempt.
+        {% else %}
+          No confirmed normal-runtime observation is available ({{ status }}).
+          The Mac may need unlocking, or its network or status service may
+          be unavailable. Open FileVault to check.
+        {% endif %}
+  - sequence: !input notify_actions
+
+mode: single
+max_exceeded: silent

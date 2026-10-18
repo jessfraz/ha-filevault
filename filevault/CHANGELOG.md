@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.0-alpha.4
+
+- Match Shipments and Maintenance with transparent outlined safe icons, neutral
+  fills, and light/dark variants. Preserve app and integration asset placement.
+- Add bounded read-only Assist tools for status and configuration health,
+  gated by entity exposure and current user read permission.
+- Add native diagnostics with an allowlisted, redacted payload and no backend
+  request, connection identifiers, credentials or raw exception text.
+- Package opt-in attention, runtime-returned and daily-status notification
+  blueprints with configurable targets, notification actions and debounce.
+- Keep recovery and configuration unchanged; no automatic credentials, unlock,
+  restart or power-cycle actions are added.
+
 ## 0.1.0-alpha.3
 
 - Replace duplicate targets with one Mac connection shared by manual SSH and
