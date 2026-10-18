@@ -2,6 +2,7 @@ use crate::{
     controller::{Controller, Outcome},
     policy::Decision,
     secret::Secret,
+    ssh_manual::ManualTarget,
     transport::Disabled,
 };
 use anyhow::{Context as _, Result};
@@ -57,12 +58,16 @@ pub struct StatusReport {
     pub version: &'static str,
     pub decision: Decision,
     pub transport_ready: bool,
+    pub manual_ready: bool,
+    pub configuration_errors: Vec<&'static str>,
 }
 
 #[derive(Serialize, JsonSchema)]
 pub struct SystemReport {
     version: &'static str,
     credential_role: &'static str,
+    manual_ready: bool,
+    configuration_errors: Vec<&'static str>,
 }
 
 #[endpoint {method=GET,path="/v1/system",tags=["system"]}]
@@ -77,6 +82,8 @@ async fn system(
         } else {
             "ha_user"
         },
+        manual_ready: r.context().controller.manual_ready(),
+        configuration_errors: r.context().controller.configuration_errors(),
     }));
     response
         .headers_mut()
@@ -127,6 +134,8 @@ async fn status(
         version: env!("CARGO_PKG_VERSION"),
         decision: r.context().controller.status().await,
         transport_ready: r.context().controller.ready(),
+        manual_ready: r.context().controller.manual_ready(),
+        configuration_errors: r.context().controller.configuration_errors(),
     };
     let mut response = HttpResponseHeaders::new_unnamed(HttpResponseOk(report));
     response
@@ -188,6 +197,87 @@ async fn prepare(
     Ok(response)
 }
 
+#[derive(Serialize, JsonSchema)]
+pub struct ManualChallengeReport {
+    nonce: String,
+    expires_in: u64,
+    target: ManualTarget,
+}
+
+#[endpoint {method=POST,path="/v1/manual/session",tags=["recovery"]}]
+async fn prepare_manual(
+    r: RequestContext<Arc<Context>>,
+    body: UntypedBody,
+) -> Result<HttpResponseHeaders<HttpResponseOk<ManualChallengeReport>>, HttpError> {
+    let user = browser_user(&r)?;
+    let base = ingress_base(&r)?;
+    if !body.as_bytes().is_empty() {
+        return Err(deny(Status::BAD_REQUEST, "empty request required"));
+    }
+    let manual = r
+        .context()
+        .controller
+        .manual_challenge(user)
+        .await
+        .map_err(|_| deny(Status::CONFLICT, "pinned SSH connection unavailable"))?;
+    let cookie = format!(
+        "fv_session={}; Secure; HttpOnly; SameSite=Strict; Path={base}; Max-Age=60",
+        manual.challenge.cookie
+    );
+    let mut response = HttpResponseHeaders::new_unnamed(HttpResponseOk(ManualChallengeReport {
+        nonce: manual.challenge.nonce,
+        expires_in: 60,
+        target: manual.target,
+    }));
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().unwrap());
+    response.headers_mut().insert(
+        "set-cookie",
+        cookie
+            .parse()
+            .map_err(|_| deny(Status::BAD_REQUEST, "response unavailable"))?,
+    );
+    Ok(response)
+}
+
+#[derive(Serialize, JsonSchema)]
+pub struct ManualTrustReport {
+    trusted: bool,
+}
+
+#[endpoint {method=POST,path="/v1/manual/trust",tags=["recovery"]}]
+async fn trust_manual(
+    r: RequestContext<Arc<Context>>,
+    body: UntypedBody,
+) -> Result<HttpResponseHeaders<HttpResponseOk<ManualTrustReport>>, HttpError> {
+    let user = browser_user(&r)?;
+    if !body.as_bytes().is_empty()
+        || header(&r, "x-filevault-confirm") != Some("verified_host_identity")
+    {
+        return Err(deny(
+            Status::BAD_REQUEST,
+            "explicit server identity confirmation required",
+        ));
+    }
+    let nonce = header(&r, "x-filevault-nonce")
+        .filter(|s| s.len() == 64)
+        .ok_or_else(|| deny(Status::FORBIDDEN, "request grant required"))?;
+    let cookie = session_cookie(header(&r, "cookie"))
+        .ok_or_else(|| deny(Status::FORBIDDEN, "request grant required"))?;
+    r.context()
+        .controller
+        .trust_manual(nonce, cookie, user, header(&r, "origin").unwrap_or(""))
+        .await
+        .map_err(|_| deny(Status::CONFLICT, "server identity confirmation unavailable"))?;
+    let mut response =
+        HttpResponseHeaders::new_unnamed(HttpResponseOk(ManualTrustReport { trusted: true }));
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().unwrap());
+    Ok(response)
+}
+
 fn session_cookie(value: Option<&str>) -> Option<&str> {
     let value = value.filter(|v| v.len() < 4096)?;
     let mut found = value
@@ -213,6 +303,22 @@ async fn unlock(
     r: RequestContext<Arc<Context>>,
     body: UntypedBody,
 ) -> Result<HttpResponseHeaders<HttpResponseOk<AttemptReport>>, HttpError> {
+    attempt(r, body, false).await
+}
+
+#[endpoint {method=POST,path="/v1/manual/attempt",tags=["recovery"]}]
+async fn manual_attempt(
+    r: RequestContext<Arc<Context>>,
+    body: UntypedBody,
+) -> Result<HttpResponseHeaders<HttpResponseOk<AttemptReport>>, HttpError> {
+    attempt(r, body, true).await
+}
+
+async fn attempt(
+    r: RequestContext<Arc<Context>>,
+    body: UntypedBody,
+    manual: bool,
+) -> Result<HttpResponseHeaders<HttpResponseOk<AttemptReport>>, HttpError> {
     let user = browser_user(&r)?;
     let base = ingress_base(&r)?;
     if header(&r, "content-type") != Some("application/octet-stream") {
@@ -225,22 +331,37 @@ async fn unlock(
         .ok_or_else(|| deny(Status::FORBIDDEN, "request grant required"))?;
     let password = Secret::from_bytes(body.as_bytes().to_vec())
         .ok_or_else(|| deny(Status::BAD_REQUEST, "invalid request"))?;
-    let result = r
-        .context()
-        .controller
-        .submit(
-            nonce,
-            cookie,
-            user,
-            header(&r, "origin").unwrap_or(""),
-            password,
-        )
-        .await;
+    let result = if manual {
+        r.context()
+            .controller
+            .submit_manual(
+                nonce,
+                cookie,
+                user,
+                header(&r, "origin").unwrap_or(""),
+                header(&r, "x-filevault-confirm") == Some("manual_ssh"),
+                password,
+            )
+            .await
+    } else {
+        r.context()
+            .controller
+            .submit(
+                nonce,
+                cookie,
+                user,
+                header(&r, "origin").unwrap_or(""),
+                password,
+            )
+            .await
+    };
     let outcome = match result {
         Outcome::Running => "running",
         Outcome::Booting => "booting",
         Outcome::Rejected => "rejected",
         Outcome::TimedOut => "timed_out",
+        Outcome::Authenticated => "authenticated",
+        Outcome::Unconfirmed => "unconfirmed",
     };
     let mut response = HttpResponseHeaders::new_unnamed(HttpResponseOk(AttemptReport { outcome }));
     response
@@ -359,6 +480,12 @@ pub fn description() -> Result<ApiDescription<Arc<Context>>> {
     api.register(system).context("register pairing metadata")?;
     api.register(prepare).context("register session")?;
     api.register(unlock).context("register attempt")?;
+    api.register(prepare_manual)
+        .context("register manual session")?;
+    api.register(manual_attempt)
+        .context("register manual attempt")?;
+    api.register(trust_manual)
+        .context("register server identity confirmation")?;
     api.register(index).context("register dashboard")?;
     api.register(script).context("register script")?;
     api.register(script_policy).context("register UI policy")?;
@@ -375,7 +502,7 @@ pub fn openapi() -> Result<serde_json::Value> {
             "FileVault API",
             semver::Version::parse(env!("CARGO_PKG_VERSION"))?,
         )
-        .description("Status and bounded ephemeral recovery requests. Real unlock disabled until verified preboot transport is available.")
+        .description("Status suggestions, verified-phase recovery, and explicitly confirmed manual SSH authentication to pinned targets. Authentication does not certify FileVault unlock.")
         .json()?)
 }
 

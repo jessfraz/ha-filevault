@@ -11,8 +11,11 @@ configuration:
   status_token:
     name: Read-only status API token
     description: Optional service credential of 32 to 256 characters, shared with the status integration. Never enter a Mac password here. Empty disables the separate API.
+  manual_ssh:
+    name: Manual password SSH
+    description: Permanent manual login using host, port, and username. Confirm a new or changed server in the app, then enter your account password for one attempt. No client key or saved password is required.
   ssh_recovery:
-    name: Manually verified SSH phase profile
-    description: Leave disabled and unverified until supervised calibration proves independently trusted, distinct preboot and runtime host keys. Shared phase keys are unsupported. Never enter a password in these options.
+    name: Optional automatic phase suggestions
+    description: Advanced automatic suggestions only, not required for manual password SSH. Incomplete setup keeps the dashboard available. Runtime identity can provide SSH reachability without phase enrollment. Never enter an account password in these options.
 network:
   8080/tcp: Read-only bearer status API. Keep host mapping disabled; use the app's actual internal hostname for HA Core pairing.

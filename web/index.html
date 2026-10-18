@@ -16,7 +16,7 @@
         <img src="brand.svg" width="30" height="30" alt="">
         FileVault
       </a>
-      <span class="build-tag">Development</span>
+      <div class="header-actions"><button id="theme" type="button" class="quiet">Theme: Auto</button><span class="build-tag">Experimental</span></div>
     </header>
     <main class="recovery-layout">
       <div class="page-heading">
@@ -24,7 +24,8 @@
         <button id="refresh" class="quiet" type="button">Refresh status</button>
       </div>
       <p id="notice" class="notice" role="status" aria-live="polite"></p>
-      <section class="recovery-card" aria-labelledby="status-title">
+      <p id="configuration" class="notice configuration" role="status" hidden></p>
+      <section id="status-card" class="recovery-card" aria-labelledby="status-title" data-state="unknown">
         <div class="status-art" aria-hidden="true"><img src="brand.svg" width="108" height="108" alt=""></div>
         <div class="status-content">
           <p id="status-title" class="eyebrow">MAC STATUS</p>
@@ -33,6 +34,12 @@
           <button id="unlock" type="button" hidden disabled>Unlock FileVault</button>
         </div>
         <div class="connection-bar"><span class="connection-dot" aria-hidden="true"></span><span id="service-status">Connecting</span><span id="last-checked" class="last-checked">No recent observation</span></div>
+      </section>
+      <section class="manual-card" aria-labelledby="manual-title">
+        <div><p class="eyebrow">YOU'RE IN CONTROL</p><h3 id="manual-title">Manual SSH unlock</h3>
+          <p class="muted">Send one password login to your trusted Mac, even when automatic status is unknown or running. You confirm the target first.</p>
+          <p id="manual-availability" class="field-help">Set the Mac's host and username in app settings. Its password is entered only when connecting.</p></div>
+        <button id="manual-ssh" type="button" hidden disabled>Connect with SSH</button>
       </section>
       <div class="recovery-notes">
         <section class="recovery-note" aria-labelledby="availability-title">
@@ -51,7 +58,17 @@
       <form id="recovery-form" autocomplete="off">
         <p class="eyebrow">ONE-TIME RECOVERY</p>
         <h2 id="recovery-title">Unlock FileVault</h2>
-        <p class="muted">Enter the password for this attempt. The field clears as soon as you submit.</p>
+        <p id="attempt-help" class="muted">Enter the password for this attempt. The field clears as soon as you submit.</p>
+        <div id="manual-details" hidden>
+          <dl class="target-details"><div><dt>SSH account</dt><dd id="manual-target"></dd></div><div><dt>Server fingerprint</dt><dd id="manual-key"></dd></div></dl>
+          <p id="host-trust-status" class="muted"></p>
+          <div id="host-trust" hidden>
+            <label class="confirmation"><input id="host-confirm" type="checkbox">I verified this server fingerprint using a trusted source.</label>
+            <button id="trust-host" type="button" disabled>Trust this SSH server</button>
+            <p class="field-help">Only the server's public identity is remembered. Your password is never saved.</p>
+          </div>
+          <label class="confirmation"><input id="manual-confirm" type="checkbox">I confirm this target and one SSH password attempt.</label>
+        </div>
         <label for="password">Password</label>
         <input id="password" type="password" autocomplete="off"
           spellcheck="false" autocapitalize="none" maxlength="1024" required>

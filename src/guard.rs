@@ -36,6 +36,15 @@ impl AttemptGuard {
         self.grants.remove(nonce);
     }
 
+    pub fn owns(&self, nonce: &str, user: &str, session: &str, origin: &str, now: Instant) -> bool {
+        self.grants.get(nonce).is_some_and(|grant| {
+            grant.expires > now
+                && grant.user == user
+                && grant.session == session
+                && self.origin == origin
+        })
+    }
+
     pub fn new(origin: String, now: Instant) -> Self {
         Self {
             grants: HashMap::new(),
@@ -73,7 +82,7 @@ impl AttemptGuard {
         user: &str,
         session: &str,
         origin: &str,
-        verified_locked: bool,
+        authorized_session: bool,
         now: Instant,
     ) -> Result<(), Reject> {
         // Caller holds the guard mutex throughout this operation. Consumption
@@ -88,7 +97,7 @@ impl AttemptGuard {
         if origin != self.origin {
             return Err(Reject::Origin);
         }
-        if !verified_locked {
+        if !authorized_session {
             return Err(Reject::State);
         }
         if self.busy {

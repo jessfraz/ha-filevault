@@ -11,6 +11,9 @@ if [ "$(id -u)" -eq 0 ]; then
     if [ -f /data/credentials.json ]; then
         chown -h filevault:filevault /data/credentials.json
     fi
+    if [ -f /data/ssh_known_hosts ]; then
+        chown -h filevault:filevault /data/ssh_known_hosts
+    fi
     exec gosu filevault "$0" "$@"
 fi
 umask 077

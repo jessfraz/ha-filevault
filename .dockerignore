@@ -12,3 +12,4 @@ tests_web
 .env.*
 options.json
 credentials.json
+ssh_known_hosts

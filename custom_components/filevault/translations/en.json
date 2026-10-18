@@ -55,7 +55,14 @@
   "entity": {
     "sensor": {
       "status": {
-        "name": "FileVault status"
+        "name": "FileVault status",
+        "state": {
+          "running": "Running",
+          "ssh_reachable": "SSH online",
+          "verified_preboot": "Locked",
+          "unreachable": "Unreachable",
+          "unknown": "Unknown"
+        }
       }
     }
   }

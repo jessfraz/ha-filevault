@@ -280,4 +280,10 @@ fn no_password_configuration_fields() {
         )
         .is_err()
     );
+    for payload in [
+        r#"{"manual_ssh":{"password":"DUMMY_SENTINEL"}}"#,
+        r#"{"ssh_recovery":{"password":"DUMMY_SENTINEL"}}"#,
+    ] {
+        assert!(serde_json::from_str::<filevault::config::Options>(payload).is_err());
+    }
 }

@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import struct
 import subprocess
 import tomllib
 import zipfile
@@ -25,6 +26,18 @@ version = tomllib.loads(git("show", "HEAD:Cargo.toml").decode())["package"]["ver
 if version == "0.0.0":
     raise SystemExit("Unreleased scaffold version")
 commit = git("rev-parse", "HEAD").decode().strip()
+for app_path, integration_path, size in [
+    ("filevault/icon.png", "custom_components/filevault/brand/icon.png", 256),
+    ("filevault/logo.png", "custom_components/filevault/brand/icon@2x.png", 512),
+]:
+    asset = git("show", "HEAD:" + app_path)
+    if asset != git("show", "HEAD:" + integration_path):
+        raise SystemExit("App and integration branding must match")
+    if asset[:8] != b"\x89PNG\r\n\x1a\n" or struct.unpack(">II", asset[16:24]) != (
+        size,
+        size,
+    ):
+        raise SystemExit("Invalid brand PNG dimensions")
 output = args.output.resolve()
 output.mkdir(parents=True, exist_ok=True)
 source = output / f"ha-filevault-{version}.tar.gz"
@@ -63,7 +76,7 @@ provenance.write_text(
             "version": version,
             "commit": commit,
             "status": (
-                "experimental; supervised phase enrollment required; "
+                "experimental; manual server identity verification required; "
                 "hardware not validated"
             ),
         },

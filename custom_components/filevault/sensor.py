@@ -22,7 +22,13 @@ class FileVaultStatusSensor(CoordinatorEntity[FileVaultCoordinator], SensorEntit
     _attr_translation_key = "status"
     _attr_unique_id = "filevault_status"
     _attr_device_class = SensorDeviceClass.ENUM
-    _attr_options = ["running", "verified_preboot", "unreachable", "unknown"]
+    _attr_options = [
+        "running",
+        "ssh_reachable",
+        "verified_preboot",
+        "unreachable",
+        "unknown",
+    ]
 
     def __init__(self, coordinator: FileVaultCoordinator) -> None:
         super().__init__(coordinator)

@@ -7,7 +7,8 @@
           "running": "mdi:desktop-mac",
           "verified_preboot": "mdi:lock-outline",
           "unreachable": "mdi:lan-disconnect",
-          "unknown": "mdi:help-circle-outline"
+          "unknown": "mdi:help-circle-outline",
+          "ssh_reachable": "mdi:lan-connect"
         }
       }
     }

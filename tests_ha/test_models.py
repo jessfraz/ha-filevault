@@ -40,3 +40,16 @@ class StatusBoundaryTests(unittest.TestCase):
             }
         )
         self.assertFalse(result.unlock_available)
+
+    def test_ssh_reachability_is_status_only_without_phase_enrollment(self) -> None:
+        result = models.parse_status(
+            {
+                "decision": {"state": "ssh_reachable", "unlock_available": False},
+                "transport_ready": False,
+                "manual_ready": True,
+                "configuration_errors": ["Automatic phase detection is incomplete."],
+            }
+        )
+        self.assertEqual(result.state, "ssh_reachable")
+        self.assertFalse(result.unlock_available)
+        self.assertNotIn("configuration_errors", repr(result))

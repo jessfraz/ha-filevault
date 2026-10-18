@@ -1,8 +1,9 @@
-# FileVault app
+# FileVault
 
-Experimental prerelease 0.1.0-alpha.1. Real hardware behavior is unvalidated;
-recovery is disabled by default until supervised distinct-phase-key enrollment.
+Permanent manual password SSH, optional automatic phase suggestions, and a
+read-only Home Assistant status integration. Server identity is verified using
+normal first-connection confirmation; no client key or copied phase keys are
+required for manual login. Passwords are entered only in the temporary dialog.
 
-See [configuration](DOCS.md) and the repository's security notes before
-installing
-or enabling it. HACS distributes the separate read-only status adapter.
+Experimental prerelease; actual Mac behavior has not been validated.
+See DOCS.md before installation, configuration, or a supervised hardware test.

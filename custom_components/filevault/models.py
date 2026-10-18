@@ -21,7 +21,14 @@ def parse_status(data: object) -> Status:
     available = decision.get("unlock_available")
     ready = data.get("transport_ready")
     if (
-        state not in {"running", "verified_preboot", "unreachable", "unknown"}
+        state
+        not in {
+            "running",
+            "ssh_reachable",
+            "verified_preboot",
+            "unreachable",
+            "unknown",
+        }
         or type(available) is not bool
         or type(ready) is not bool
         or available != (state == "verified_preboot")

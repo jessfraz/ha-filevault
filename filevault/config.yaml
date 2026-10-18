@@ -1,7 +1,7 @@
 name: FileVault
-version: "0.1.0-alpha.1"
+version: "0.1.0-alpha.2"
 slug: filevault
-description: Experimental FileVault recovery with manually verified SSH phase identities
+description: Password-based manual SSH unlock with optional automatic phase suggestions
 url: https://github.com/jessfraz/ha-filevault
 arch:
   - amd64
@@ -25,6 +25,11 @@ options:
   allowed_user_ids: []
   frontend_origin: ""
   status_token: ""
+  manual_ssh:
+    enabled: true
+    host: ""
+    port: 22
+    username: ""
   ssh_recovery:
     enabled: false
     host: ""
@@ -39,6 +44,11 @@ schema:
     - str
   frontend_origin: str
   status_token: password
+  manual_ssh:
+    enabled: bool
+    host: str
+    port: port
+    username: str
   ssh_recovery:
     enabled: bool
     host: str

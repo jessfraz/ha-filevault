@@ -75,9 +75,75 @@
         ],
         "type": "object"
       },
+      "ManualChallengeReport": {
+        "properties": {
+          "expires_in": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ManualTarget"
+          }
+        },
+        "required": [
+          "expires_in",
+          "nonce",
+          "target"
+        ],
+        "type": "object"
+      },
+      "ManualTarget": {
+        "properties": {
+          "host": {
+            "type": "string"
+          },
+          "host_key_fingerprint": {
+            "type": "string"
+          },
+          "port": {
+            "format": "uint16",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "trust_status": {
+            "type": "string"
+          },
+          "trusted": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "host_key_fingerprint",
+          "port",
+          "trust_status",
+          "trusted",
+          "username"
+        ],
+        "type": "object"
+      },
+      "ManualTrustReport": {
+        "properties": {
+          "trusted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "trusted"
+        ],
+        "type": "object"
+      },
       "State": {
         "enum": [
           "running",
+          "ssh_reachable",
           "verified_preboot",
           "unreachable",
           "unknown"
@@ -86,8 +152,17 @@
       },
       "StatusReport": {
         "properties": {
+          "configuration_errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "decision": {
             "$ref": "#/components/schemas/Decision"
+          },
+          "manual_ready": {
+            "type": "boolean"
           },
           "transport_ready": {
             "type": "boolean"
@@ -97,7 +172,9 @@
           }
         },
         "required": [
+          "configuration_errors",
           "decision",
+          "manual_ready",
           "transport_ready",
           "version"
         ],
@@ -105,15 +182,26 @@
       },
       "SystemReport": {
         "properties": {
+          "configuration_errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "credential_role": {
             "type": "string"
+          },
+          "manual_ready": {
+            "type": "boolean"
           },
           "version": {
             "type": "string"
           }
         },
         "required": [
+          "configuration_errors",
           "credential_role",
+          "manual_ready",
           "version"
         ],
         "type": "object"
@@ -121,9 +209,9 @@
     }
   },
   "info": {
-    "description": "Status and bounded ephemeral recovery requests. Real unlock disabled until verified preboot transport is available.",
+    "description": "Status suggestions, verified-phase recovery, and explicitly confirmed manual SSH authentication to pinned targets. Authentication does not certify FileVault unlock.",
     "title": "FileVault API",
-    "version": "0.1.0-alpha.1"
+    "version": "0.1.0-alpha.2"
   },
   "openapi": "3.0.3",
   "paths": {
@@ -232,6 +320,117 @@
         },
         "tags": [
           "web"
+        ]
+      }
+    },
+    "/v1/manual/attempt": {
+      "post": {
+        "operationId": "manual_attempt",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttemptReport"
+                }
+              }
+            },
+            "description": "successful operation"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "tags": [
+          "recovery"
+        ]
+      }
+    },
+    "/v1/manual/session": {
+      "post": {
+        "operationId": "prepare_manual",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualChallengeReport"
+                }
+              }
+            },
+            "description": "successful operation"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "tags": [
+          "recovery"
+        ]
+      }
+    },
+    "/v1/manual/trust": {
+      "post": {
+        "operationId": "trust_manual",
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualTrustReport"
+                }
+              }
+            },
+            "description": "successful operation"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "tags": [
+          "recovery"
         ]
       }
     },

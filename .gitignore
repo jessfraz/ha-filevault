@@ -30,3 +30,5 @@ known_hosts
 *.log
 *.key
 *.pem
+
+ssh_known_hosts

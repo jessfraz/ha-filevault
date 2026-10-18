@@ -1,102 +1,84 @@
 # Architecture
 
-The service follows Maintenance and Shipments: Rust 2024, Dropshot, typed
-OpenAPI, embedded HTML/CSS/JavaScript, HA ingress, an unprivileged container,
-and a thin Python coordinator. Reused public MIT source retains its notice.
+Rust/Dropshot serves an embedded UI through HA ingress, with an optional
+read-only Python coordinator. The stack, automatic pairing, light/dark palette,
+and packaging follow Maintenance and Shipments; reused MIT notices remain.
 
-## Request flow
+## Two explicit SSH actions
 
-`GET /v1/status` accepts a read-only bearer credential or an allowlisted HA
-user arriving from the configured Supervisor peer. Static UI requests require
-ingress authorization. The HA adapter exposes one fixed enum status sensor
-and registers no unlock entity, service, mutation bridge, or automation.
+The permanent manual action configures host/port/username, verifies a fresh
+SSH server handshake, and retains that cryptographic connection. A known_hosts
+store classifies the identity as trusted, new, or changed. Candidates are pinned
+for any rekey but cannot receive a password until separately confirmed.
 
-The UI offers Unlock only for fresh, repeated, identity-bound preboot proof
-and a transport that explicitly supports recovery. Normal runtime,
-unreachable, unknown, booting, and contradictory evidence hide the control.
-The default transport is disabled. The optional handshake-only SSH probe reports
-unknown. The recovery profile classifies phase only from its manually verified,
-exclusive phase identities and rejects certificates.
-The optional manually enrolled recovery profile supports password
-authentication.
-It requires independently verified, distinct phase keys and explicit enablement;
-it is disabled by default and has no banner-based detector.
+POST /v1/manual/session creates a user/session/origin-bound 60-second grant and
+returns account, fingerprint, and trust state to authenticated ingress only.
+POST /v1/manual/trust requires explicit identity confirmation and remembers
+only the public server identity after checking that same live connection.
+POST /v1/manual/attempt separately requires trusted identity and manual intent,
+consumes the grant, and sends one SSH password request. No phase assertion,
+client key, shell, command, PTY, fallback method, or automatic retry is
+involved.
+Authenticated and unconfirmed are honest results, not unlock-success claims.
 
-`POST /v1/session` requires the trusted ingress peer, allowed user, exact HTTPS
-origin, same-origin Fetch Metadata, and an empty body. The controller obtains
-two matching verified-preboot observations, then retains the second connection
-for a grant valid for at most 60 seconds. The response contains a random
-single-use nonce and a separate Secure, HttpOnly, SameSite=Strict session
-cookie.
-Pending grants are bounded in memory; a timer discards expired grants and
-retained connections. Concurrent preparation requests are rejected.
+The optional automatic profile uses distinct, manually calibrated phase keys.
+POST /v1/session repeats preboot observations and retains the connection.
+POST /v1/unlock rechecks identity/phase through a fresh key exchange and sends
+one password request. Only separate pinned runtime proof produces Running;
+a disconnect alone remains booting/unknown. Both actions share attempt limits,
+concurrency control, session binding, and ephemeral password handling. Grants
+cannot change action type.
 
-`POST /v1/unlock` accepts at most 1,024 UTF-8 bytes in an octet-stream body.
-No target, account, command, or protocol choice comes from the browser. The
-server checks the ingress context, nonce, session, user, origin, expiry, and
-attempt limits, atomically consumes the grant, and rechecks identity and
-preboot state on the retained connection before invoking the transport once.
-Positive runtime proof or a timeout checking for contradictory runtime evidence
-rejects preparation and submission.
+## Status and configuration
 
-The controller allows one in-flight attempt per target, a 60-second startup
-and attempt cooldown, five-second connection/recheck limits, a 30-second
-submission limit, and up to 120 seconds for separate runtime confirmation.
-Cancellation leaves admission blocked until process restart; it cannot create
-an automatic retry. Submission completion or SSH closure alone never means
-running. Without positive runtime proof, the result is booting or unknown.
+GET /v1/system gives fixed role/capability and safe configuration metadata
+without network probes or credentials. GET /v1/status reports calibrated phase
+proof when available, otherwise trusted SSH reachability without authentication.
+SSH online is distinct from proved normal runtime/FileVault state. Manual action
+availability does not depend on the phase request completing successfully.
 
-## Temporary credential handling
+Invalid SSH profile values become fixed, redacted configuration errors while
+the authenticated dashboard remains available and that action stays disabled.
+Existing options are not rewritten. A blank manual target can reuse the existing
+legacy target; saved normal-runtime public identity can bootstrap host trust.
+No password field exists in target configuration.
 
-The masked field exists only in the dedicated UI. The client clears it before
-the request, clears its mutable byte buffer, and clears the form on expiry,
-cancellation, navigation, or page hiding. There is no browser storage,
-analytics, transcript, retry, or password-bearing HA entity/service path.
+## Credential and persistence boundaries
 
-The backend wraps credential bytes in a non-cloneable, non-printable,
-zeroizing type. They are consumed by one transport call and dropped before
-runtime polling. The adapter moves these bytes into russh's password method,
-whose owned String
-is zeroized on drop. Socket shutdown on drop/cancellation ends the library
-session; no password is reused for runtime checks. HTTP
-framework and browser copies exist transiently; zeroization cannot guarantee
-erasure of every copy, swap page, or compromised client.
+Passwords travel only as bounded octet-stream bodies on dedicated ingress
+routes, never URLs, headers, logs, options, HA entities/services/events,
+recorder,
+or traces. UI buffers and fields clear before/after one POST and on
+cancellation,
+expiry, or navigation. Rust Secret is zeroizing and non-printable; russh's owned
+password method is zeroized on drop. Socket shutdown closes cancelled attempts.
+These are best-effort memory boundaries; browser/proxy/library copies exist.
 
-Application request logging is discarded and responses use a fixed outcome
-vocabulary. HA and Supervisor ingress proxies still process request bodies.
-Their buffering, logs, and crash behavior require deployment review with
-dummy data before any real credential is entered.
+The app stores a read-only pairing token in mode-0600 credentials.json and
+public server identities in mode-0600 ssh_known_hosts under managed /data.
+Supervisor receives only the read-only token/internal origin via discovery.
+Core confirmation precedes token probing/storage. The token cannot access UI,
+trust, session, or password routes. No owner mutation API credential is needed.
 
-## Reference differences
+HA ingress requires the configured Supervisor peer, explicit user allowlist,
+exact HTTPS Origin, same-origin Fetch Metadata, secure cookie, random single-use
+nonce, action binding, expiry, bounded payload, and one in-flight attempt.
+Operational errors are fixed strings; input-bearing request logging is
+discarded.
+Dummy-data deployment review must establish proxy logging/buffering behavior.
 
-| Reference pattern | FileVault decision |
-| --- | --- |
-| SQLite domain state and migrations | No database or durable attempt history |
-| Generated owner/integration credentials | One owner-only persistent read-only integration credential; no owner/unlock API credential |
-| HA action services and mutation bridge | Read-only status adapter; recovery uses dedicated ingress |
-| Embedded dashboard and relative paths | Reused with a masked ephemeral dialog |
-| Mutation-intent header | Also require origin, session, nonce, expiry, and server-side proof |
-| Structured request logger | Discard input-bearing request logs |
-| Tagged multiarch releases | Same structure, with publication gated pending readiness review |
+## Distribution
 
-## Supervised hardware gate
+Native amd64/arm64 app images use /data, initial ownership setup then UID 10001,
+ingress 8099, and optional internal read-only 8080 with host mapping disabled.
+No privileged/host-network/device/mount/Core-API/broad-Supervisor grant is
+needed.
+The optional HACS custom-repository adapter executes inside Core and exposes
+one fixed enum sensor. It is not default-catalog listed.
 
-There is no universal preboot detector. Supervised calibration must establish
-that this Mac and OS offer independently trusted, distinct, phase-exclusive
-host keys, that pre-authentication rekey/password authentication work, and that
-the expected disconnect leads to the normal runtime identity. Shared phase
-keys cannot enable this profile. Recalibrate after OS or identity changes.
-
-`SshRecovery` performs the real SSH password method and fresh pinned runtime
-handshakes; its tests use in-memory keys and loopback SSH servers, not a Mac.
-Authentication failures have no method fallback or retry. Ambiguous disconnects
-may await runtime proof but never imply success themselves. Normal SSH identity
-is the status boundary; individual application health needs separate checks.
-
-The HA app uses a versioned GHCR image, explicit private options, authenticated
-ingress, and an optional bearer status listener internal to the app network.
-Host port mapping defaults off. The Python adapter pairs explicitly and is
-read-only. Automatic pairing uses the same authenticated Supervisor discovery
-and HA confirmation path as the references. Only an app-owned read-only token
-is generated/persisted; no Mac password is involved, and no probe or Core entry
-write occurs before the pairing confirmation. Standalone setup stays explicit.
+App and integration brand PNGs are byte-identical at 256 and 512 pixels; release
+packaging checks both copies and dimensions. Standard sidebar metadata uses the
+matching Material Design vault icon. Source/integration archives include only
+committed public source, with provenance/checksums. Tag/image publication
+follows
+exact-head CI and explicit approval. Deployment and hardware tests are separate.

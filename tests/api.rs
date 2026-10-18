@@ -34,6 +34,7 @@ async fn status_is_authenticated_no_store_and_never_claims_unlock_ready() {
     assert_eq!(body["decision"]["state"], "unknown");
     assert_eq!(body["decision"]["unlock_available"], false);
     assert_eq!(body["transport_ready"], false);
+    assert_eq!(body["manual_ready"], false);
     let metadata: serde_json::Value = client
         .get(format!("{url}/v1/system"))
         .bearer_auth("test-only-status-token")
@@ -45,6 +46,26 @@ async fn status_is_authenticated_no_store_and_never_claims_unlock_ready() {
         .unwrap();
     assert_eq!(metadata["credential_role"], "integration");
     assert!(metadata.get("token").is_none());
+    for path in [
+        "/v1/manual/session",
+        "/v1/manual/attempt",
+        "/v1/manual/trust",
+    ] {
+        assert_eq!(
+            client
+                .post(format!("{url}{path}"))
+                .bearer_auth("test-only-status-token")
+                .header("x-remote-user-id", "user")
+                .header("origin", "https://ha.example.invalid")
+                .header("sec-fetch-site", "same-origin")
+                .body("DUMMY_SENTINEL")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+    }
     assert_eq!(
         client
             .post(format!("{url}/v1/unlock"))
@@ -75,4 +96,7 @@ fn openapi_has_dedicated_endpoint_without_ha_service_payload() {
     assert!(paths.contains_key("/v1/status"));
     assert!(paths.contains_key("/v1/unlock"));
     assert!(paths.contains_key("/v1/session"));
+    assert!(paths.contains_key("/v1/manual/session"));
+    assert!(paths.contains_key("/v1/manual/attempt"));
+    assert!(paths.contains_key("/v1/manual/trust"));
 }

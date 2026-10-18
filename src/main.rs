@@ -3,9 +3,8 @@ use filevault::{
     api::{self, Access, Context},
     config::Config,
     controller::Controller,
-    ssh_recovery::SshRecovery,
+    profiles,
     supervisor::Supervisor,
-    transport::{Disabled, SshProbe, Transport},
 };
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -20,25 +19,23 @@ async fn main() -> Result<()> {
         )?;
         return Ok(());
     }
-    let transport: Arc<dyn Transport> = if let Some(recovery) =
-        options.ssh_recovery.filter(|r| r.enabled)
-    {
-        Arc::new(
-            SshRecovery::new(recovery)
-                .map_err(|_| anyhow::anyhow!("invalid SSH recovery profile"))?,
-        )
-    } else if let Some(probe) = options.ssh_probe {
-        Arc::new(
-            SshProbe::new(probe).map_err(|_| anyhow::anyhow!("invalid SSH probe configuration"))?,
-        )
-    } else {
-        Arc::new(Disabled)
-    };
-    let controller = Arc::new(Controller::new(
-        transport,
+    let profiles = profiles::build(&options, config.options.as_deref());
+    for error in &profiles.errors {
+        eprintln!("{error}");
+    }
+    let mut controller = Controller::new(
+        profiles.transport,
         options.frontend_origin.unwrap_or_default(),
         std::time::Instant::now(),
-    ));
+    )
+    .with_configuration_errors(profiles.errors);
+    if let Some(observer) = profiles.observer {
+        controller = controller.with_observer(observer);
+    }
+    if let Some(manual) = profiles.manual {
+        controller = controller.with_manual(manual);
+    }
+    let controller = Arc::new(controller);
     let (stop, stopped) = tokio::sync::watch::channel(false);
     let pairing = if options.auto_pairing {
         if let (Some(supervisor), Some(token)) =

@@ -1,12 +1,9 @@
 //! Manually calibrated phase identities. No automatic preboot signature.
 use crate::{
     policy::State,
-    secret::Secret,
-    transport::{
-        Connection, Failure, FutureResult, Observation, Session, Transport, connect_pinned,
-    },
+    transport::{Failure, FutureResult, PasswordSession, Session, Transport, connect_pinned},
 };
-use russh::{client::AuthResult, keys::PublicKey};
+use russh::keys::PublicKey;
 use serde::Deserialize;
 
 #[derive(Clone, Default, Deserialize)]
@@ -58,70 +55,25 @@ impl SshRecovery {
     }
 }
 
-struct RecoverySession {
-    connection: Connection,
-    username: String,
-    identity: String,
-    verified: bool,
-}
-impl Session for RecoverySession {
-    fn observation(&self) -> Observation {
-        Observation {
-            state: if self.verified {
-                State::VerifiedPreboot
-            } else {
-                State::Unknown
-            },
-            identity: self.identity.clone(),
-        }
-    }
-    fn recheck(&mut self) -> FutureResult<'_, Result<Observation, Failure>> {
-        Box::pin(async {
-            if !self.verified {
-                return Err(Failure::Unverified);
-            }
-            // Fresh key exchange over this existing authenticated transport.
-            // No auth-none, global requests, commands, or password probes.
-            self.connection.recheck().await?;
-            Ok(self.observation())
-        })
-    }
-    fn submit(self: Box<Self>, password: Secret) -> FutureResult<'static, Result<(), Failure>> {
-        Box::pin(async move {
-            let mut session = *self;
-            if !session.verified || session.connection.handle.is_closed() {
-                return Err(Failure::Unverified);
-            }
-            // Exactly one SSH password method. russh zeroizes Method::Password.
-            let result = session
-                .connection
-                .handle
-                .authenticate_password(session.username, password.into_password())
-                .await;
-            let closed = session.connection.handle.is_closed();
-            match result {
-                Ok(AuthResult::Success) => Ok(()),
-                Ok(AuthResult::Failure { .. }) if closed => Err(Failure::DeliveryUnknown),
-                Ok(AuthResult::Failure { .. }) => Err(Failure::Rejected),
-                Err(_) => Err(Failure::DeliveryUnknown),
-            }
-            // Connection drop closes the socket even when a task is cancelled.
-        })
-    }
-}
 impl Transport for SshRecovery {
     fn open(&self) -> FutureResult<'_, Result<Box<dyn Session>, Failure>> {
         Box::pin(async move {
             let connection =
                 connect_pinned(&self.config.host, self.config.port, &self.preboot).await?;
-            Ok(Box::new(RecoverySession {
+            Ok(Box::new(PasswordSession {
                 connection,
                 username: self.config.username.clone(),
                 identity: self
                     .preboot
                     .fingerprint(russh::keys::HashAlg::Sha256)
                     .to_string(),
-                verified: self.unlock_ready(),
+                state: if self.unlock_ready() {
+                    State::VerifiedPreboot
+                } else {
+                    State::Unknown
+                },
+                authorized: self.unlock_ready(),
+                manual: false,
             }) as Box<dyn Session>)
         })
     }

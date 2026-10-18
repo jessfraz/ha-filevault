@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SKIP = {".git", "target", ".venv", ".direnv", "__pycache__", ".pytest_cache", ".ruff_cache", "work", "review"}
-BAD_NAMES = {"options.json", "credentials.json", "known_hosts", ".env"}
+BAD_NAMES = {"options.json", "credentials.json", "known_hosts", "ssh_known_hosts", ".env"}
 PATTERNS = [
     re.compile(rb"-----BEGIN (?:OPENSSH |RSA |EC )?PRIVATE KEY-----"),
     re.compile(rb"(?:gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})"),

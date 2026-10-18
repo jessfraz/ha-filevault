@@ -1,6 +1,6 @@
 use crate::{policy::State, secret::Secret};
 use russh::{
-    client,
+    client::{self, AuthResult},
     keys::{PublicKey, PublicKeyOrCertificate},
 };
 use serde::Deserialize;
@@ -29,6 +29,9 @@ pub trait Session: Send {
     fn observation(&self) -> Observation;
     fn recheck(&mut self) -> FutureResult<'_, Result<Observation, Failure>>;
     fn submit(self: Box<Self>, password: Secret) -> FutureResult<'static, Result<(), Failure>>;
+    fn confirm_manual_host(&mut self) -> Result<(), Failure> {
+        Err(Failure::Unverified)
+    }
 }
 
 pub trait Transport: Send + Sync {
@@ -79,7 +82,8 @@ impl SshProbe {
 }
 
 pub(crate) struct PinnedKey {
-    key: PublicKey,
+    key: Option<PublicKey>,
+    observed: Arc<std::sync::Mutex<Option<PublicKey>>>,
     epoch: tokio::sync::watch::Sender<u64>,
 }
 impl client::Handler for PinnedKey {
@@ -90,7 +94,18 @@ impl client::Handler for PinnedKey {
     ) -> Result<bool, Self::Error> {
         // Certificates need their own review; comparing just their embedded key
         // would silently accept an unvalidated certificate envelope.
-        Ok(offered.certificate().is_none() && offered.public_key() == self.key)
+        if offered.certificate().is_some()
+            || self
+                .key
+                .as_ref()
+                .is_some_and(|key| offered.public_key() != *key)
+        {
+            return Ok(false);
+        }
+        let key = offered.public_key();
+        self.key = Some(key.clone());
+        *self.observed.lock().expect("host identity mutex") = Some(key);
+        Ok(true)
     }
 
     async fn kex_done(
@@ -116,6 +131,77 @@ pub(crate) struct Connection {
     pub handle: client::Handle<PinnedKey>,
     epoch: tokio::sync::watch::Receiver<u64>,
     _shutdown: ShutdownOnDrop,
+    pub server_key: PublicKey,
+}
+
+/// One password request on an already pinned connection. Phase is independent
+/// of authorization: a manual user-confirmed connection can remain Unknown.
+pub(crate) struct PasswordSession {
+    pub connection: Connection,
+    pub username: String,
+    pub identity: String,
+    pub state: State,
+    pub authorized: bool,
+    pub manual: bool,
+}
+
+impl Session for PasswordSession {
+    fn observation(&self) -> Observation {
+        Observation {
+            state: self.state,
+            identity: self.identity.clone(),
+        }
+    }
+
+    fn recheck(&mut self) -> FutureResult<'_, Result<Observation, Failure>> {
+        Box::pin(async {
+            if !self.authorized && !self.manual {
+                return Err(Failure::Unverified);
+            }
+            if self.manual {
+                // The fresh candidate handshake and password use this same
+                // cryptographic connection. Pin checks also cover any server
+                // rekey. Do not require a nonstandard extra pre-auth rekey for
+                // a normal manual password login or reconnect behind the user.
+                if self.connection.handle.is_closed() {
+                    return Err(Failure::Unavailable);
+                }
+                return Ok(self.observation());
+            }
+            self.connection.recheck().await?;
+            Ok(self.observation())
+        })
+    }
+
+    fn confirm_manual_host(&mut self) -> Result<(), Failure> {
+        if !self.manual {
+            return Err(Failure::Unverified);
+        }
+        self.authorized = true;
+        Ok(())
+    }
+
+    fn submit(self: Box<Self>, password: Secret) -> FutureResult<'static, Result<(), Failure>> {
+        Box::pin(async move {
+            let mut session = *self;
+            if !session.authorized || session.connection.handle.is_closed() {
+                return Err(Failure::Unverified);
+            }
+            let result = session
+                .connection
+                .handle
+                .authenticate_password(session.username, password.into_password())
+                .await;
+            let closed = session.connection.handle.is_closed();
+            match result {
+                Ok(AuthResult::Success) => Ok(()),
+                Ok(AuthResult::Failure { .. }) if closed => Err(Failure::DeliveryUnknown),
+                Ok(AuthResult::Failure { .. }) => Err(Failure::Rejected),
+                Err(_) => Err(Failure::DeliveryUnknown),
+            }
+            // Drop closes the socket; russh zeroizes its owned password method.
+        })
+    }
 }
 impl Connection {
     pub async fn recheck(&mut self) -> Result<(), Failure> {
@@ -143,6 +229,20 @@ pub(crate) async fn connect_pinned(
     port: u16,
     key: &PublicKey,
 ) -> Result<Connection, Failure> {
+    connect_identity(host, port, Some(key.clone())).await
+}
+
+/// Discover a candidate identity without authenticating. The connection pins
+/// that same key for rekey; user confirmation is required before any password.
+pub(crate) async fn connect_candidate(host: &str, port: u16) -> Result<Connection, Failure> {
+    connect_identity(host, port, None).await
+}
+
+async fn connect_identity(
+    host: &str,
+    port: u16,
+    key: Option<PublicKey>,
+) -> Result<Connection, Failure> {
     let connection = async {
         let stream = tokio::net::TcpStream::connect((host, port))
             .await
@@ -151,6 +251,7 @@ pub(crate) async fn connect_pinned(
         let shutdown = ShutdownOnDrop(stream.try_clone().map_err(|_| Failure::Unavailable)?);
         let stream = tokio::net::TcpStream::from_std(stream).map_err(|_| Failure::Unavailable)?;
         let (epoch_tx, epoch) = tokio::sync::watch::channel(0);
+        let observed = Arc::new(std::sync::Mutex::new(None));
         let config = client::Config {
             inactivity_timeout: Some(Duration::from_secs(120)),
             ..Default::default()
@@ -159,16 +260,23 @@ pub(crate) async fn connect_pinned(
             Arc::new(config),
             stream,
             PinnedKey {
-                key: key.clone(),
+                key,
+                observed: observed.clone(),
                 epoch: epoch_tx,
             },
         )
         .await
         .map_err(|_| Failure::Identity)?;
+        let server_key = observed
+            .lock()
+            .map_err(|_| Failure::Identity)?
+            .clone()
+            .ok_or(Failure::Identity)?;
         Ok(Connection {
             handle,
             epoch,
             _shutdown: shutdown,
+            server_key,
         })
     };
     tokio::time::timeout(Duration::from_secs(5), connection)

@@ -31,10 +31,49 @@ pub struct Options {
     pub frontend_origin: Option<String>,
     pub ssh_probe: Option<crate::transport::ProbeConfig>,
     pub ssh_recovery: Option<crate::ssh_recovery::RecoveryConfig>,
+    pub manual_ssh: Option<crate::ssh_manual::ManualConfig>,
     /// Separate read-only service credential, never a Mac password.
     pub status_token: Option<String>,
     #[serde(default)]
     pub auto_pairing: bool,
+    #[serde(skip)]
+    pub invalid_profiles: Vec<&'static str>,
+}
+
+impl Options {
+    /// SSH sections may fail closed independently. Access-control options must
+    /// remain valid; never invent an allowlist/origin from malformed input.
+    pub fn parse(bytes: &[u8]) -> Result<Self> {
+        let mut raw: serde_json::Value = serde_json::from_slice(bytes)
+            .map_err(|_| anyhow::anyhow!("invalid app options JSON"))?;
+        let object = raw
+            .as_object_mut()
+            .ok_or_else(|| anyhow::anyhow!("app options must be an object"))?;
+        let automatic = object.remove("ssh_recovery");
+        let manual = object.remove("manual_ssh");
+        let observer = object.remove("ssh_probe");
+        let mut options: Self = serde_json::from_value(raw)
+            .map_err(|_| anyhow::anyhow!("invalid app access options"))?;
+        if let Some(value) = automatic {
+            match serde_json::from_value(value) {
+                Ok(profile) => options.ssh_recovery = profile,
+                Err(_) => options.invalid_profiles.push("automatic"),
+            }
+        }
+        if let Some(value) = manual {
+            match serde_json::from_value(value) {
+                Ok(profile) => options.manual_ssh = profile,
+                Err(_) => options.invalid_profiles.push("manual"),
+            }
+        }
+        if let Some(value) = observer {
+            match serde_json::from_value(value) {
+                Ok(profile) => options.ssh_probe = profile,
+                Err(_) => options.invalid_profiles.push("observer"),
+            }
+        }
+        Ok(options)
+    }
 }
 
 impl Config {
@@ -42,7 +81,7 @@ impl Config {
         let mut config = Self::parse();
         let mut options: Options = if let Some(path) = &config.options {
             let bytes = std::fs::read(path).map_err(|_| anyhow::anyhow!("read app options"))?;
-            serde_json::from_slice(&bytes).map_err(|_| anyhow::anyhow!("invalid app options"))?
+            Options::parse(&bytes)?
         } else {
             Options::default()
         };
@@ -73,11 +112,6 @@ impl Config {
                 .integration,
             );
         }
-        ensure!(
-            !(options.ssh_probe.is_some()
-                && options.ssh_recovery.as_ref().is_some_and(|r| r.enabled)),
-            "choose one SSH profile"
-        );
         if let Some(origin) = &options.frontend_origin {
             let uri: http::Uri = origin
                 .parse()

@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
-
-// A small event-driven DOM fixture. Only dummy values enter the input.
 class Element {
-  value = "";
-  hidden = true;
-  disabled = true;
-  open = false;
-  textContent = "";
-  listeners = new Map();
+  value = ""; hidden = true; disabled = true; open = false; checked = false;
+  textContent = ""; dataset = {}; listeners = new Map();
   addEventListener(name, callback) { this.listeners.set(name, callback); }
   async fire(name) { await this.listeners.get(name)?.({preventDefault() {}}); }
   showModal() { this.open = true; }
@@ -21,74 +15,128 @@ const element = (name) => {
 };
 const visibility = new Element();
 const windowEvents = new Element();
-globalThis.document = {
-  hidden: false,
-  getElementById: element,
-  addEventListener: visibility.addEventListener.bind(visibility),
-};
+globalThis.document = {hidden: false, documentElement: {dataset: {}},
+  getElementById: element, addEventListener: visibility.addEventListener.bind(visibility)};
 globalThis.window = {addEventListener: windowEvents.addEventListener.bind(windowEvents)};
 let state = "unknown";
+let trust = "trusted";
+let failStatus = false;
 let deferred = null;
 let attempts = 0;
+let trusts = 0;
+const target = () => ({host: "mac.example.invalid", port: 22, username: "fixture-user",
+  host_key_fingerprint: "SHA256:" + "a".repeat(43), trust_status: trust, trusted: trust === "trusted"});
 globalThis.fetch = async (path, options) => {
+  if (path === "v1/system") return {ok: true, json: async () => ({manual_ready: true,
+    configuration_errors: ["Automatic phase detection is incomplete."]})};
   if (path === "v1/status") {
-    return {ok: true, json: async () => ({
-      decision: {state, unlock_available: true}, transport_ready: true,
-    })};
+    if (failStatus) throw new Error("Synthetic unavailable status");
+    return {ok: true, json: async () => ({decision: {state, unlock_available: true},
+      transport_ready: true, manual_ready: true, configuration_errors: []})};
   }
-  if (path === "v1/session") {
+  if (path === "v1/session" || path === "v1/manual/session") {
     if (deferred) return deferred;
-    return {ok: true, json: async () => ({nonce: "a".repeat(64), expires_in: 60})};
+    return {ok: true, json: async () => ({nonce: "a".repeat(64), expires_in: 60, target: target()})};
   }
-  assert.equal(path, "v1/unlock");
+  if (path === "v1/manual/trust") {
+    trusts++;
+    assert.equal(options.headers["X-FileVault-Confirm"], "verified_host_identity");
+    assert.equal(options.body, undefined);
+    trust = "trusted";
+    return {ok: true, json: async () => ({trusted: true})};
+  }
+  assert.ok(["v1/unlock", "v1/manual/attempt"].includes(path));
   attempts++;
   assert.equal(element("password").value, "");
   assert.equal(new TextDecoder().decode(options.body), "DUMMY_SENTINEL");
-  return {ok: true, json: async () => ({outcome: "booting"})};
+  if (path === "v1/manual/attempt") assert.equal(options.headers["X-FileVault-Confirm"], "manual_ssh");
+  return {ok: true, json: async () => ({outcome: path === "v1/unlock" ? "booting" : "authenticated"})};
 };
 await import("../web/app.js");
 assert.equal(element("unlock").hidden, true);
+assert.equal(element("manual-ssh").hidden, false);
+await element("manual-ssh").fire("click");
+assert.equal(element("recovery").open, true);
+assert.equal(element("password").disabled, false);
+assert.equal(element("submit-recovery").disabled, true);
+element("password").value = "DUMMY_SENTINEL";
+await element("recovery-form").fire("submit");
+assert.equal(attempts, 0);
+assert.equal(element("password").value, "");
+element("manual-confirm").checked = true;
+await element("manual-confirm").fire("change");
+element("password").value = "DUMMY_SENTINEL";
+await element("recovery-form").fire("submit");
+assert.equal(attempts, 1);
+assert.equal(element("password").value, "");
 assert.equal(element("recovery").open, false);
+assert.match(element("notice").textContent, /not confirmed/);
+await element("recovery-form").fire("submit");
+assert.equal(attempts, 1);
+
+trust = "new";
+await element("manual-ssh").fire("click");
+assert.equal(element("password").disabled, true);
+assert.equal(element("host-trust").hidden, false);
+assert.equal(element("trust-host").disabled, true);
+assert.equal(trusts, 0);
+element("manual-confirm").checked = true;
+element("password").value = "DUMMY_SENTINEL";
+await element("recovery-form").fire("submit");
+assert.equal(attempts, 1);
+assert.equal(element("password").value, "");
+element("host-confirm").checked = true;
+await element("host-confirm").fire("change");
+await element("trust-host").fire("click");
+assert.equal(trusts, 1);
+assert.equal(element("password").disabled, false);
+element("password").value = "DUMMY_SENTINEL";
+await element("recovery-form").fire("submit");
+assert.equal(attempts, 2);
+
+trust = "changed";
+await element("manual-ssh").fire("click");
+assert.match(element("host-trust-status").textContent, /identity has changed/);
+assert.equal(element("password").disabled, true);
+assert.equal(trusts, 1);
+await element("cancel-recovery").fire("click");
+assert.equal(element("recovery").open, false);
+assert.equal(element("manual-confirm").checked, false);
 
 state = "verified_preboot";
 await element("refresh").fire("click");
 assert.equal(element("unlock").hidden, false);
 await element("unlock").fire("click");
-assert.equal(element("recovery").open, true);
 element("password").value = "DUMMY_SENTINEL";
 await element("recovery-form").fire("submit");
-assert.equal(attempts, 1);
-assert.equal(element("password").value, "");
-assert.equal(element("recovery").open, false);
-assert.equal(element("unlock").hidden, true);
+assert.equal(attempts, 3);
 assert.match(element("notice").textContent, /Waiting/);
-await element("recovery-form").fire("submit");
-assert.equal(attempts, 1);
 
+state = "running";
 await element("refresh").fire("click");
-await element("unlock").fire("click");
-element("password").value = "DUMMY_SENTINEL";
+assert.equal(element("unlock").hidden, true);
+assert.equal(element("manual-ssh").hidden, false);
+failStatus = true;
+trust = "trusted";
+await element("refresh").fire("click");
+assert.equal(element("manual-ssh").hidden, false);
+assert.match(element("configuration").textContent, /incomplete/);
+await element("manual-ssh").fire("click");
+assert.equal(element("recovery").open, true);
 await element("cancel-recovery").fire("click");
-assert.equal(element("password").value, "");
-assert.equal(element("recovery").open, false);
 
 let resolve;
 deferred = new Promise((done) => { resolve = done; });
-const opening = element("unlock").fire("click");
+const opening = element("manual-ssh").fire("click");
 document.hidden = true;
 await visibility.fire("visibilitychange");
-resolve({ok: true, json: async () => ({nonce: "b".repeat(64), expires_in: 60})});
+resolve({ok: true, json: async () => ({nonce: "b".repeat(64), expires_in: 60, target: target()})});
 await opening;
 assert.equal(element("recovery").open, false);
-assert.equal(element("unlock").hidden, true);
 assert.equal(element("password").value, "");
-
-document.hidden = false;
-deferred = null;
-state = "running";
-await visibility.fire("visibilitychange");
-// The listener starts a refresh without returning it.
-await new Promise((done) => setImmediate(done));
-assert.equal(element("unlock").hidden, true);
-assert.equal(attempts, 1);
-console.log("UI gating, one submission, cancellation and hidden-page race checks passed");
+assert.equal(attempts, 3);
+await element("theme").fire("click");
+assert.equal(document.documentElement.dataset.theme, "light");
+await element("theme").fire("click");
+assert.equal(document.documentElement.dataset.theme, "dark");
+console.log("Manual override, separate identity trust, field clearing, status failure and UI race checks passed");

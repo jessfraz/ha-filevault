@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { presentation } from "../web/policy.js";
 
-for (const state of ["running", "unreachable", "unknown", "unrecognized", null]) {
+for (const state of ["running", "ssh_reachable", "unreachable", "unknown", "unrecognized", null]) {
   assert.equal(presentation({decision: {state, unlock_available: true}, transport_ready: true}).canUnlock, false);
 }
 assert.equal(presentation({decision: {state: "verified_preboot", unlock_available: true}, transport_ready: false}).canUnlock, false);

@@ -5,6 +5,7 @@ use serde::Serialize;
 #[serde(rename_all = "snake_case")]
 pub enum State {
     Running,
+    SshReachable,
     VerifiedPreboot,
     Unreachable,
     Unknown,
@@ -15,6 +16,7 @@ pub enum State {
 pub struct Evidence {
     pub age_seconds: Option<f64>,
     pub runtime_verified: bool,
+    pub ssh_identity_verified: bool,
     pub preboot_verified: bool,
     pub host_key_pinned: bool,
     pub prior_preboot_age_seconds: Option<f64>,
@@ -42,6 +44,8 @@ pub fn decide(e: Evidence) -> Decision {
         State::Unknown
     } else if e.runtime_verified {
         State::Running
+    } else if e.ssh_identity_verified {
+        State::SshReachable
     } else if e.busy {
         State::Unknown
     } else if e.preboot_verified

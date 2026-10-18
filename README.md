@@ -1,134 +1,149 @@
 # FileVault
 
-An experimental FileVault recovery app and read-only Home Assistant integration,
-using the same Rust/Dropshot service, embedded UI, and Python coordinator
-structure as [Maintenance](https://github.com/jessfraz/ha-maintenance) and
-[Shipments](https://github.com/jessfraz/ha-packages).
+Password-based SSH unlock for Home Assistant, with a permanent manual connection
+option and optional automatic boot-phase suggestions. The service follows
+[Maintenance](https://github.com/jessfraz/ha-maintenance) and
+[Shipments](https://github.com/jessfraz/ha-packages): Rust/Dropshot, an embedded
+light/dark UI, HA ingress, and a read-only Python integration.
 
-**This prerelease has not been tested against a real Mac. Recovery is disabled
-by default.** It requires supervised enrollment proving that preboot and normal
-runtime have distinct, independently trusted SSH host keys. Shared phase keys
-are unsupported. There is no automatic banner detector or trust-on-first-use.
+**Experimental prerelease. Real Mac recovery has not been validated.**
+The manual feature uses host, port, username, and a password entered for one
+attempt. It does not require client-key authentication or copied phase keys.
+It does not open an interactive terminal.
 
-![FileVault status preview](docs/screenshots/status-desktop.jpg)
+![FileVault status preview](docs/screenshots/status-desktop.png)
 
-Synthetic development preview. [Mobile
-layout](docs/screenshots/status-mobile.jpg).
+Synthetic preview. [Mobile layout](docs/screenshots/status-mobile.png),
+[dark theme](docs/screenshots/status-dark.png), and
+[server identity confirmation](docs/screenshots/manual-identity.png).
 
-## What it does
+## Manual password SSH
 
-- Verifies pinned SSH host identities and repeats preboot observations.
-- Offers a masked, temporary password field only for a verified locked state.
-- Rechecks the same connection with a fresh SSH key exchange, then submits one
-  password authentication request. No shell, commands, PTY, forwarding, method
-  fallback, or automatic retry.
-- Confirms normal runtime with a new handshake to its separately enrolled key.
-  Authentication completion or SSH disconnect alone never means success.
-- Exposes a fixed read-only status sensor through the optional HA integration.
-  A Mac password never enters HA entities, services, events, or automation data.
+Configure the target in `manual_ssh` with `enabled`, `host`, `port`, and
+`username`. Open **Connect with SSH** in authenticated ingress. Recognized
+servers proceed to account confirmation and temporary password entry. A new or
+changed server displays its fingerprint and requires a separate explicit
+identity-verification step before the password field is enabled. A changed
+identity is never silently accepted. No public-key text needs to be copied into
+manual configuration.
 
-Apple supports FileVault unlock over SSH on Apple silicon with macOS 26 or
-later,
-Remote Login enabled, and network connectivity. See
-[Apple's documentation](https://support.apple.com/guide/security/managing-filevault-sec8447f5049/web).
-Apple does not promise the distinct phase identities this profile requires;
-supervised calibration must establish that fact for the actual target. If it
-cannot, leave recovery disabled. Do not substitute a version/banner guess.
+Only public server identities are remembered in owner-only
+`/data/ssh_known_hosts`; no account password is saved. The first handshake and
+password use the same cryptographic connection, with exact identity checking
+through any server rekey. No reconnect, shell, command, PTY, forwarding,
+authentication-method fallback, or automatic password retry occurs.
 
-"Running" means the enrolled normal SSH runtime identity is reachable. It does
-not certify a desktop login or the health of every user application. Check
-required services separately after a supervised test.
+Manual SSH remains available when phase is unknown, automatic detection fails,
+or normal runtime is detected. Each attempt needs a fresh user/session/origin
+bound grant and explicit confirmation. An accepted password reports
+**authenticated**, not FileVault-unlocked. A disconnect reports **unconfirmed**.
+Check status and required services separately.
 
-## Home Assistant app
+Existing `ssh_recovery` host/port/username settings are reused when the new
+manual target is blank; options are not rewritten. An explicitly provisioned
+runtime server key can bootstrap the normal host identity. Incomplete automatic
+profiles disable their suggestions and show a safe configuration message while
+the dashboard and valid manual profile remain available.
 
-Install only after reviewing the exact prerelease, image digest, permissions,
-and hardware test plan. The executor must run independently of the locked Mac.
-No installation or power cycle is performed by this repository.
+## Status and optional automatic suggestions
 
-Add this repository URL to the HA app store, select FileVault, and review its
-configuration before starting it. The multiarch image is
-`ghcr.io/jessfraz/ha-filevault:<version>`. Published prereleases are
-experimental.
+A trusted SSH handshake can report **SSH online** without phase enrollment or
+password authentication. It proves reachability of the trusted identity, not
+FileVault state, desktop login, or application health. A host identity observed
+only in normal runtime must not be claimed to prove its exclusivity to that
+phase.
 
-- `auto_pairing`: on by default for the HA app. On approved app startup it
-  creates/reuses one owner-only read-only service credential and announces it
-  privately through Supervisor. Confirm the discovered integration in HA before
-  its credential is probed or saved in Core. No Mac password participates.
-- `allowed_user_ids`: explicit HA users permitted through authenticated ingress.
-  Empty denies access. The configured Supervisor peer is also checked.
-- `frontend_origin`: exact HTTPS browser origin, without a path or trailing
-  slash.
-- `status_token`: explicit 32–256-character read-only service credential for
-  manual/standalone use with `auto_pairing: false`. Empty disables that API
-  when automatic pairing is off. **Never enter a Mac password here.**
-- `ssh_recovery`: target host/port/local account, preboot and runtime public
-  keys,
-  `enabled`, and `manual_enrollment_verified`. Both flags default to false.
-  Do not mark enrollment verified without the supervised checks in
-  [SECURITY.md](SECURITY.md). Recalibrate after OS or SSH identity changes.
+Automatic **Unlock FileVault** suggestions remain a separate advanced profile.
+`ssh_recovery` uses independently trusted, distinct, phase-exclusive
+`preboot_public_key` and `runtime_public_key`, plus `enabled` and
+`manual_enrollment_verified`. Calibration is required for that classifier;
+shared phase keys are unsupported. It has no generic banner detector or
+trust-on-first-use. These requirements do not gate manual password SSH.
+The automatic path repeats observations, rekeys the retained connection, and
+requires a separate normal-runtime proof before reporting Running.
 
-The app uses managed `/data`, runs as UID 10001 after initial ownership setup,
-and exposes ingress on 8099. It requests no privileged mode, host networking,
-Docker socket, host mounts, devices, HA Core API token, or Supervisor-management
-API. It uses only the standard app self-info and discovery routes for pairing.
-Core dumps are disabled. The optional bearer status API uses internal port
-8080; its host mapping is disabled by default. Do not expose it casually.
+Apple supports FileVault SSH unlock on Apple silicon with macOS 26 or later,
+Remote Login enabled, and networking:
+[Apple documentation](https://support.apple.com/guide/security/managing-filevault-sec8447f5049/web).
+This does not establish compatibility of this prerelease with a particular Mac.
 
-## HACS status integration
+## Home Assistant app and pairing
 
-Add `https://github.com/jessfraz/ha-filevault` as a HACS custom repository of type
-Integration. This is **not** a default-catalog listing. HACS installs the Python
-adapter, not the backend. Installing custom Python executes it inside HA Core;
-review that trust boundary separately from the container app.
+Add `https://github.com/jessfraz/ha-filevault` to the HA app-store repositories.
+Review the exact prerelease, image digest, permissions, and target before
+installing or updating. The app image is
+`ghcr.io/jessfraz/ha-filevault:<version>`, native amd64 and arm64.
 
-The app generates a read-only integration credential in `/data/credentials.json`
-with owner-only permissions and reuses it across restarts. It announces only
-that credential and its Supervisor-provided internal origin through
-authenticated
-Supervisor discovery. HA shows a confirmation form before any credential probe
-or config-entry write. Reauthentication rediscovers the same app and confirms
-replacement. This matches the reference apps' automatic pairing flow.
+- `allowed_user_ids`: explicit HA users permitted through ingress; empty denies
+  access. The configured Supervisor peer is also checked.
+- `frontend_origin`: exact HTTPS browser origin, without path or trailing slash.
+- `manual_ssh`: permanent manual password connection. Host/port/username only;
+  the password belongs solely in the temporary app dialog.
+- `ssh_recovery`: optional advanced automatic phase suggestions.
+- `auto_pairing`: on by default. Approved startup creates/reuses a mode-0600
+  read-only integration credential in `/data/credentials.json` and announces it
+  privately through authenticated Supervisor discovery. HA confirmation occurs
+  before credential validation or storage in Core. This is not a Mac password.
+- `status_token`: optional 32–256-character service credential for explicit
+  standalone pairing with `auto_pairing: false`. Never put an account password
+  here. Empty disables that API when automatic pairing is off.
 
-For a standalone service, choose the explicit standalone setup and enter its
-origin and read-only integration credential. The client validates the role
-through `/v1/system`, rejects broader owner credentials, and never redirects a
-credential. No token is sent to the browser dashboard. FileVault deliberately
-has no separate owner API credential: all unlock requests require the ingress
-user/session/origin boundary, and its pairing token is read-only.
+The app uses managed `/data`, initial ownership setup then UID 10001, ingress
+8099, and an optional internal read-only API on 8080 with host mapping disabled.
+It requests no privileged mode, host networking, Docker socket, host mounts,
+devices, Core API token, or broad Supervisor API. Pairing uses only standard
+self-info and discovery routes. Core dumps are disabled.
 
-The integration uses HA's shared HTTP client and exposes one status sensor,
-with bundled brand PNGs and state icons. It registers no unlock service.
+The executor, remote ingress, and recovery controller must survive loss of the
+Mac. Review deployed proxy logging/buffering with dummy data before real
+password
+entry. The user enters the real password directly, with agent observation off.
+Do not use this app's first unvalidated recovery attempt as its own fallback.
 
-For standalone development, `FILEVAULT_STATUS_TOKEN` enables the read-only
-listener at `FILEVAULT_BIND` (default `127.0.0.1:8080`). The optional
-`ssh_probe`
-JSON profile performs a pinned handshake only and never enables recovery.
-Use one SSH profile at a time. Private configuration stays outside the source.
+## HACS integration and icons
+
+Add this repository as a HACS custom repository of type Integration. This is
+**not** a default-catalog listing. HACS installs the read-only Python adapter,
+which runs inside HA Core; review that trust boundary separately. App ingress
+can be used without it. Coordinate any required Core restart.
+
+The app and integration use identical 256-pixel brand icons and matching
+512-pixel assets. The integration bundles `brand/icon.png` and `icon@2x.png`;
+the HA app includes `icon.png` and `logo.png`. The standard app sidebar uses
+its matching Material Design vault icon. Packaging checks enforce identical
+PNG assets and dimensions.
+
+The integration confirms Supervisor discovery, validates the integration role
+through `/v1/system`, rejects owner credentials and redirects, and stores only
+the read-only service credential. It exposes one enum sensor and no SSH/unlock
+service, password-bearing entity, automation bridge, or transcript.
 
 ## Development and release
 
-Use Rust stable, Node.js, Python 3.14, uv, and just. `nix develop` provides the
+Use Rust stable, Node.js, Python 3.14, uv, and just. `nix develop` supplies the
 reference tools. Run `just check`, `just security`, and `just container`.
-`just openapi` regenerates the API document. Tests use ephemeral loopback SSH
-servers and synthetic credentials; they do not establish real Mac behavior.
+`just openapi` regenerates the API description. CI runs frozen uv, Ruff, ty,
+pytest, Rust tests/lints, browser checks, and native amd64/arm64 container
+smoke.
+All SSH tests use ephemeral loopback peers and synthetic credentials.
 
-After committing a reviewed candidate, run:
+After committing a reviewed candidate, package it with:
 
 ```sh
 scripts/build-release-artifacts --output /tmp/filevault-release
 ```
 
-This packages committed source and a standalone integration ZIP, license,
-provenance, and SHA256SUMS. The image workflow builds/tests native amd64 and
-arm64, then publishes only approved version tags when the repository release
-gate is enabled. The version check rejects 0.0.0 and mismatched tags.
+The source archive, integration ZIP, provenance, and SHA256SUMS contain
+committed
+public source only. Image publication requires an approved matching version tag
+and the release gate. No deployment, password attempt, or power cycle is
+performed by publication.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md) and [SECURITY.md](SECURITY.md) for
-request,
-credential, enrollment, and release boundaries. Issues and wiki are disabled;
-submit improvements through pull requests with fictional fixtures.
+See [SECURITY.md](SECURITY.md), [ARCHITECTURE.md](ARCHITECTURE.md), and the
+[app configuration guide](filevault/DOCS.md). Issues and wiki are disabled;
+submit improvements with fictional fixtures through pull requests.
 
 ## License
 
-MIT. Original icon assets and reused reference styles retain this license and
-its copyright notice.
+MIT. Original icon assets and reused reference styles retain the license and
+copyright notice.
