@@ -94,15 +94,15 @@ async function loadHistory(append = false) {
     });
     if (!append) {
       byId("history-list").replaceChildren();
-      lastRun = page.results[0] ?? null;
+      lastRun = page.latest ?? page.results[0] ?? null;
       if (lastRun) {
         byId("check-lan").textContent = endpointResult({...lastRun.lan,host:target.host,port:target.port},target.host,target.port);
         byId("check-tailscale").textContent = endpointResult({...lastRun.tailscale,host:target.tailscale_host,port:target.port},target.tailscale_host,target.port);
         byId("connectivity-results").hidden = false;
       } else byId("connectivity-results").hidden = true;
       if (!checkFailed) {
-        if (lastRun) byId("connectivity-status").textContent = `Last checked ${dateLabel(lastRun.finished_at ?? lastRun.started_at)}. Saved connection results do not establish the Mac's current boot phase.`;
-        else byId("connectivity-status").textContent = "No saved connection check for these settings. Check connections to begin.";
+        if (lastRun) byId("connectivity-status").textContent = `Last checked ${dateLabel(lastRun.finished_at ?? lastRun.started_at)}. ${page.stale ? "Stale or incomplete; current connection unknown. " : ""}Saved connection results do not establish the Mac's current boot phase.`;
+        else byId("connectivity-status").textContent = "No saved connection check for these settings. Background checks start automatically.";
       }
       const success = page.last_success;
       byId("history-last-success").textContent = ["lan", "tailscale"].map(key => {
@@ -113,7 +113,7 @@ async function loadHistory(append = false) {
     byId("history-list").append(...rows);
     historyBefore = Number.isSafeInteger(page.next) && page.next > 0 ? page.next : null;
     byId("history-more").hidden = !historyBefore;
-    byId("history-status").textContent = "Historical results only. Up to 1,000 checks for 30 days; only matching endpoint settings are shown. No login credentials or raw diagnostic messages are saved.";
+    byId("history-status").textContent = `Background checks run automatically. New observations expire after ${page.retention_days ?? 14} days; legacy history is preserved. Only matching endpoint settings are shown. No login credentials or raw diagnostic messages are saved.`;
     placeChecks();
   } catch {
     if (historyAbort === abort) {

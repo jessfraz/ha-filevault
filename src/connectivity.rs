@@ -117,6 +117,31 @@ impl ConnectionChecks {
         self.store = Some(store);
         self
     }
+    /// Runs without a browser. Shares the manual check semaphore, never queues
+    /// overlapping probes, and uses completion-relative sleeps (no catch-up).
+    pub async fn monitor(&self, interval: Duration, mut stop: tokio::sync::watch::Receiver<bool>) {
+        let interval = interval.clamp(Duration::from_secs(15), Duration::from_secs(300));
+        let mut delay = interval;
+        loop {
+            if *stop.borrow() {
+                break;
+            }
+            let healthy = match self.check().await {
+                Ok(report) => [report.lan.ssh, report.tailscale.ssh].contains(&SshCheck::Trusted),
+                Err(_) => false,
+            };
+            delay = if healthy {
+                interval
+            } else {
+                (delay * 2).min(Duration::from_secs(300))
+            };
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {},
+                _ = stop.changed() => break,
+            }
+        }
+    }
+
     pub async fn history(&self, before: Option<i64>, limit: u32) -> Result<HistoryPage, Failure> {
         self.store
             .as_ref()

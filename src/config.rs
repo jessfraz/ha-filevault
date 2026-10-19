@@ -19,6 +19,12 @@ pub struct Config {
     pub ingress_peer: IpAddr,
     #[arg(long, env = "FILEVAULT_DATABASE", default_value = "filevault.sqlite3")]
     pub database: PathBuf,
+    /// Background check cadence; failures back off up to five minutes.
+    #[arg(long, env = "FILEVAULT_CHECK_INTERVAL_SECONDS", default_value = "60", value_parser = clap::value_parser!(u64).range(15..=300))]
+    pub check_interval_seconds: u64,
+    /// Applies only to observations created by this version.
+    #[arg(long, env = "FILEVAULT_HISTORY_DAYS", default_value = "14", value_parser = clap::value_parser!(u32).range(1..=90))]
+    pub history_days: u32,
     #[arg(long)]
     pub options: Option<PathBuf>,
     #[arg(long)]

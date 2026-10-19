@@ -435,3 +435,105 @@ async fn accepted_check_is_saved_after_the_http_waiter_is_dropped() {
     assert_eq!(history.results[0].lan.dns, DnsCheck::TimedOut);
     store.close().await.unwrap();
 }
+
+#[tokio::test(start_paused = true)]
+async fn background_monitor_starts_without_ui_backs_off_and_stops() {
+    let resolver = Arc::new(FixedResolver {
+        addresses: vec![],
+        calls: AtomicUsize::new(0),
+    });
+    let checks = ConnectionChecks::with_resolver(mac(22), None, resolver.clone());
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let task = tokio::spawn(async move { checks.monitor(Duration::from_secs(60), stopped).await });
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(resolver.calls.load(Ordering::SeqCst), 2);
+    tokio::time::advance(Duration::from_secs(119)).await;
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(resolver.calls.load(Ordering::SeqCst), 2);
+    tokio::time::advance(Duration::from_secs(1)).await;
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(resolver.calls.load(Ordering::SeqCst), 4);
+    tokio::time::advance(Duration::from_secs(240)).await;
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(resolver.calls.load(Ordering::SeqCst), 6);
+    tokio::time::advance(Duration::from_secs(300)).await;
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(resolver.calls.load(Ordering::SeqCst), 8);
+    stop.send(true).unwrap();
+    task.await.unwrap();
+    tokio::time::advance(Duration::from_secs(1000)).await;
+    assert_eq!(resolver.calls.load(Ordering::SeqCst), 8);
+}
+
+#[tokio::test(start_paused = true)]
+async fn monitor_and_manual_probes_share_nonqueueing_lock() {
+    let checks = ConnectionChecks::with_resolver(mac(22), None, Arc::new(PendingResolver));
+    let background = checks.clone();
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let task =
+        tokio::spawn(async move { background.monitor(Duration::from_secs(60), stopped).await });
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+    }
+    assert!(checks.check().await.is_err());
+    stop.send(true).unwrap();
+    tokio::time::advance(Duration::from_secs(3)).await;
+    task.await.unwrap();
+    checks.drain().await;
+}
+
+#[tokio::test]
+async fn background_observation_persists_without_an_http_client() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("background.sqlite3");
+    let store = filevault::store::Store::open(&path).await.unwrap();
+    let checks = ConnectionChecks::with_resolver(
+        mac(22),
+        None,
+        Arc::new(FixedResolver {
+            addresses: vec![],
+            calls: AtomicUsize::new(0),
+        }),
+    )
+    .with_store(store.clone());
+    let background = checks.clone();
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let task =
+        tokio::spawn(async move { background.monitor(Duration::from_secs(60), stopped).await });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let page = checks.history(None, 20).await.unwrap();
+            if page
+                .latest
+                .is_some_and(|run| matches!(run.state, filevault::store::RunState::Complete))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    stop.send(true).unwrap();
+    task.await.unwrap();
+    checks.drain().await;
+    store.close().await.unwrap();
+    let store = filevault::store::Store::open(&path).await.unwrap();
+    let checks = ConnectionChecks::new(mac(22), None).with_store(store.clone());
+    let page = checks.history(None, 20).await.unwrap();
+    assert_eq!(page.results.len(), 1);
+    assert_eq!(page.latest.unwrap().lan.dns, DnsCheck::Failed);
+    assert!(page.last_success.tailscale.verified_at.is_none());
+    assert!(!page.stale);
+    store.close().await.unwrap();
+}

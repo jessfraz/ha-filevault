@@ -58,9 +58,23 @@ the Mac's boot-phase state or replace the manual recovery confirmation flow.
 Connection checks persist in SQLite under `/data/filevault.sqlite3` in the app,
 using the same SQLx, embedded migration, WAL, and transactional-write pattern
 as Shipments and Maintenance. Outside the app, `--database` or
-`FILEVAULT_DATABASE` selects the path. Up to 1,000 runs are retained for 30 days;
-cleanup runs at startup and when checks are recorded. The ingress-only history
-API returns matching endpoint settings, newest first, with keyset pagination.
+`FILEVAULT_DATABASE` selects the path. The service starts checks automatically,
+without an open UI. `FILEVAULT_CHECK_INTERVAL_SECONDS` (15–300, default 60)
+sets the completion-relative cadence. Failures back off to at most 300 seconds;
+manual and scheduled checks share one non-queueing probe lock. Shutdown stops
+scheduling and drains the accepted check before closing SQLite.
+
+New observations expire after `FILEVAULT_HISTORY_DAYS` (1–90, default 14),
+with a safety cap of 100,000 new records. Expiry is assigned on insertion;
+changing the setting affects future observations. Legacy records have no
+expiry and are preserved. Cleanup runs only while recording checks, never
+on startup. The latest observation and last successes survive restarts.
+Missing, incomplete, future-dated, or ten-minute-old results indicate an
+unknown current connection. DNS failure or Tailscale absence never establishes
+FileVault lock. Disconnection/reconnection time is bounded approximately by
+the surrounding observations, rather than an exact device event timestamp.
+The ingress-only history API returns matching endpoint settings, newest first,
+with keyset pagination.
 Last SSH reached and last identity verified cover retained history only.
 Changing either endpoint or the shared port selects a separate history.
 

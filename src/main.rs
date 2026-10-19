@@ -26,7 +26,9 @@ async fn main() -> Result<()> {
         return Ok(());
     }
     let profiles = profiles::build(&options, config.options.as_deref());
-    let store = Store::open(&config.database).await?;
+    let store = Store::open(&config.database)
+        .await?
+        .with_retention_days(config.history_days);
     for error in &profiles.errors {
         eprintln!("{error}");
     }
@@ -41,6 +43,7 @@ async fn main() -> Result<()> {
     if let Some(runtime) = profiles.runtime {
         controller = controller.with_runtime(runtime);
     }
+    let background_checks = profiles.connectivity.clone();
     if let Some(connectivity) = profiles.connectivity {
         controller = controller
             .with_connectivity(Arc::new((*connectivity).clone().with_store(store.clone())));
@@ -53,6 +56,18 @@ async fn main() -> Result<()> {
     }
     let controller = Arc::new(controller);
     let (stop, stopped) = tokio::sync::watch::channel(false);
+    let monitor = background_checks.map(|checks| {
+        let checks = (*checks).clone().with_store(store.clone());
+        let stopped = stopped.clone();
+        tokio::spawn(async move {
+            checks
+                .monitor(
+                    std::time::Duration::from_secs(config.check_interval_seconds),
+                    stopped,
+                )
+                .await;
+        })
+    });
     let pairing = if options.auto_pairing {
         if let (Some(supervisor), Some(token)) =
             (Supervisor::from_environment()?, config.status_token.clone())
@@ -116,8 +131,13 @@ async fn main() -> Result<()> {
             .await
             .map_err(|_| anyhow::anyhow!("close ingress listener"))?;
     }
-    controller.drain_connections().await;
     let _ = stop.send(true);
+    if let Some(monitor) = monitor {
+        monitor
+            .await
+            .map_err(|_| anyhow::anyhow!("close connection monitor"))?;
+    }
+    controller.drain_connections().await;
     if let Some(pairing) = pairing {
         pairing
             .await

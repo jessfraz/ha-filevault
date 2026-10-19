@@ -67,6 +67,15 @@
           "last_success": {
             "$ref": "#/components/schemas/EndpointSuccesses"
           },
+          "latest": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionRun"
+              }
+            ],
+            "description": "Latest observation for this profile, independent of pagination.",
+            "nullable": true
+          },
           "next": {
             "format": "int64",
             "nullable": true,
@@ -87,13 +96,18 @@
             "format": "uint32",
             "minimum": 0,
             "type": "integer"
+          },
+          "stale": {
+            "description": "Missing, unfinished, or older than ten minutes means unknown now.",
+            "type": "boolean"
           }
         },
         "required": [
           "last_success",
           "results",
           "retention_days",
-          "retention_runs"
+          "retention_runs",
+          "stale"
         ],
         "type": "object"
       },
@@ -532,7 +546,7 @@
   "info": {
     "description": "Status suggestions, verified-phase recovery, and explicitly confirmed manual SSH authentication to pinned targets. Authentication does not certify FileVault unlock.",
     "title": "FileVault API",
-    "version": "0.1.0-alpha.6"
+    "version": "0.1.0-alpha.7"
   },
   "openapi": "3.0.3",
   "paths": {

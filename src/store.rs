@@ -12,9 +12,8 @@ use sqlx::{
 };
 use std::{path::Path, time::Duration};
 
-pub const RETENTION_DAYS: u32 = 30;
-pub const RETENTION_RUNS: u32 = 1000;
-const RETENTION_SECONDS: i64 = RETENTION_DAYS as i64 * 86400;
+pub const RETENTION_DAYS: u32 = 14;
+pub const RETENTION_RUNS: u32 = 100000;
 
 #[derive(Debug, thiserror::Error)]
 #[error("connection history unavailable")]
@@ -110,6 +109,10 @@ pub struct EndpointSuccesses {
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct HistoryPage {
     pub results: Vec<ConnectionRun>,
+    /// Latest observation for this profile, independent of pagination.
+    pub latest: Option<ConnectionRun>,
+    /// Missing, unfinished, or older than ten minutes means unknown now.
+    pub stale: bool,
     pub next: Option<i64>,
     pub last_success: EndpointSuccesses,
     pub retention_days: u32,
@@ -147,6 +150,7 @@ impl RunRecord {
 #[derive(Clone)]
 pub struct Store {
     pool: SqlitePool,
+    retention_days: u32,
 }
 
 /// The same profile-match rule used by Shipments' persisted provider checks.
@@ -178,14 +182,17 @@ impl Store {
             pool.close().await;
             return Err(Error);
         }
-        let store = Self { pool };
+        let store = Self {
+            pool,
+            retention_days: RETENTION_DAYS,
+        };
         // A previous process cannot still finish its probes after a restart.
         let recovered = sqlx::query(
             "UPDATE connection_checks SET state='interrupted', finished_at=MAX(started_at, unixepoch()),
              lan=json_set(lan, '$.error', 'interrupted'),
              tailscale=json_set(tailscale, '$.error', 'interrupted') WHERE state='checking'"
         ).execute(&store.pool).await;
-        if recovered.is_err() || store.prune().await.is_err() {
+        if recovered.is_err() {
             store.pool.close().await;
             return Err(Error);
         }
@@ -194,16 +201,21 @@ impl Store {
 
     async fn prune(&self) -> Result<(), Error> {
         sqlx::query(
-            "DELETE FROM connection_checks WHERE state != 'checking' AND
-            (started_at < unixepoch() - ? OR sequence NOT IN
-              (SELECT sequence FROM connection_checks ORDER BY sequence DESC LIMIT ?))",
+            "DELETE FROM connection_checks WHERE state != 'checking'
+             AND expires_at IS NOT NULL AND (expires_at < unixepoch() OR sequence NOT IN
+               (SELECT sequence FROM connection_checks WHERE expires_at IS NOT NULL
+                ORDER BY sequence DESC LIMIT ?))",
         )
-        .bind(RETENTION_SECONDS)
         .bind(RETENTION_RUNS)
         .execute(&self.pool)
         .await
         .map_err(|_| Error)?;
         Ok(())
+    }
+
+    pub fn with_retention_days(mut self, days: u32) -> Self {
+        self.retention_days = days.clamp(1, 90);
+        self
     }
 
     pub async fn begin(&self, mac: &MacConfig) -> Result<i64, Error> {
@@ -213,8 +225,8 @@ impl Store {
             .await
             .map_err(|_| Error)?;
         let result = sqlx::query(
-            "INSERT INTO connection_checks (fingerprint,state,lan,tailscale)
-             VALUES (?,'checking',?,?)",
+            "INSERT INTO connection_checks (fingerprint,state,lan,tailscale,expires_at)
+             VALUES (?,'checking',?,?,unixepoch() + ?)",
         )
         .bind(connection_fingerprint(mac).as_slice())
         .bind(
@@ -227,6 +239,7 @@ impl Store {
             ))
             .map_err(|_| Error)?,
         )
+        .bind(i64::from(self.retention_days) * 86400)
         .execute(&mut *tx)
         .await
         .map_err(|_| Error)?;
@@ -274,11 +287,10 @@ impl Store {
         }
         let mut rows = sqlx::query_as::<_, RunRecord>(
             "SELECT sequence,started_at,finished_at,state,lan,tailscale
-            FROM connection_checks WHERE fingerprint=? AND started_at >= unixepoch() - ?
+            FROM connection_checks WHERE fingerprint=? AND (expires_at IS NULL OR expires_at >= unixepoch())
             AND (? IS NULL OR sequence < ?) ORDER BY sequence DESC LIMIT ?",
         )
         .bind(fingerprint.as_slice())
-        .bind(RETENTION_SECONDS)
         .bind(before)
         .bind(before)
         .bind(limit + 1)
@@ -299,10 +311,30 @@ impl Store {
               MAX(CASE WHEN json_extract(lan,'$.ssh') = 'trusted' THEN finished_at END),
               MAX(CASE WHEN json_extract(tailscale,'$.ssh') IN ('trusted','identity_needed') THEN finished_at END),
               MAX(CASE WHEN json_extract(tailscale,'$.ssh') = 'trusted' THEN finished_at END)
-              FROM connection_checks WHERE fingerprint=? AND state='complete' AND started_at >= unixepoch() - ?")
-              .bind(fingerprint.as_slice()).bind(RETENTION_SECONDS).fetch_one(&self.pool).await.map_err(|_| Error)?;
+              FROM connection_checks WHERE fingerprint=? AND state='complete' AND (expires_at IS NULL OR expires_at >= unixepoch())")
+              .bind(fingerprint.as_slice()).fetch_one(&self.pool).await.map_err(|_| Error)?;
+        let latest = sqlx::query_as::<_, RunRecord>(
+            "SELECT sequence,started_at,finished_at,state,lan,tailscale
+             FROM connection_checks WHERE fingerprint=? ORDER BY sequence DESC LIMIT 1",
+        )
+        .bind(fingerprint.as_slice())
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|_| Error)?
+        .map(RunRecord::into_run)
+        .transpose()?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| Error)?
+            .as_secs() as i64;
+        let stale = latest.as_ref().is_none_or(|run| {
+            !matches!(run.state, RunState::Complete)
+                || run.finished_at.is_none_or(|at| at > now || now - at > 600)
+        });
         Ok(HistoryPage {
             results,
+            latest,
+            stale,
             next,
             last_success: EndpointSuccesses {
                 lan: LastSuccess {
@@ -314,7 +346,7 @@ impl Store {
                     verified_at: tail_verified,
                 },
             },
-            retention_days: RETENTION_DAYS,
+            retention_days: self.retention_days,
             retention_runs: RETENTION_RUNS,
         })
     }
@@ -420,7 +452,7 @@ mod tests {
             .fetch_one(&store.pool)
             .await
             .unwrap();
-        assert_eq!(migrations, 1);
+        assert_eq!(migrations, 2);
         store.close().await.unwrap();
         let bytes = std::fs::read(path).unwrap();
         for private in [mac.host, mac.tailscale_host, mac.username] {
@@ -454,7 +486,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retention_is_bounded_by_age_and_total_runs_and_invalid_pages_are_rejected() {
+    async fn new_observations_expire_but_legacy_history_is_preserved() {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(&dir.path().join("history.sqlite3"))
             .await
@@ -478,15 +510,20 @@ mod tests {
             .fetch_one(&store.pool)
             .await
             .unwrap();
-        assert_eq!(count, 1000);
-        sqlx::query("UPDATE connection_checks SET started_at=unixepoch()-2678400,finished_at=unixepoch()-2678400
-            WHERE sequence=(SELECT MIN(sequence) FROM connection_checks)").execute(&store.pool).await.unwrap();
+        assert_eq!(count, 1006);
+        sqlx::query(
+            "UPDATE connection_checks SET expires_at=unixepoch()-1
+            WHERE sequence=(SELECT MIN(sequence) FROM connection_checks)",
+        )
+        .execute(&store.pool)
+        .await
+        .unwrap();
         store.prune().await.unwrap();
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM connection_checks")
             .fetch_one(&store.pool)
             .await
             .unwrap();
-        assert_eq!(count, 999);
+        assert_eq!(count, 1005);
         for (before, limit) in [(Some(0), 20), (None, 0), (None, 101)] {
             assert!(
                 store
@@ -495,6 +532,44 @@ mod tests {
                     .is_err()
             );
         }
+        store.close().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn configured_expiry_and_staleness_survive_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("history.sqlite3");
+        let store = Store::open(&path).await.unwrap().with_retention_days(7);
+        let fingerprint = connection_fingerprint(&mac());
+        assert!(store.history(&fingerprint, None, 20).await.unwrap().stale);
+        let run = save(
+            &store,
+            &mac(),
+            &endpoint(SshCheck::Trusted),
+            &endpoint(SshCheck::Unavailable),
+        )
+        .await;
+        let ttl: i64 = sqlx::query_scalar(
+            "SELECT expires_at-started_at FROM connection_checks WHERE sequence=?",
+        )
+        .bind(run.sequence)
+        .fetch_one(&store.pool)
+        .await
+        .unwrap();
+        assert_eq!(ttl, 7 * 86400);
+        assert!(!store.history(&fingerprint, None, 20).await.unwrap().stale);
+        sqlx::query("UPDATE connection_checks SET started_at=unixepoch()-602, finished_at=unixepoch()-601 WHERE sequence=?")
+            .bind(run.sequence)
+            .execute(&store.pool)
+            .await
+            .unwrap();
+        store.close().await.unwrap();
+        let store = Store::open(&path).await.unwrap();
+        let page = store.history(&fingerprint, None, 20).await.unwrap();
+        assert!(page.stale);
+        assert_eq!(page.latest.unwrap().sequence, run.sequence);
+        assert!(page.last_success.lan.verified_at.is_some());
+        assert!(page.last_success.tailscale.verified_at.is_none());
         store.close().await.unwrap();
     }
 }
