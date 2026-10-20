@@ -34,5 +34,15 @@ assert.equal(await submitOnce(input, "b".repeat(64), (path, options) => {
 assert.equal(manualCalls, 1);
 input.value = "DUMMY_SENTINEL";
 assert.equal(await submitOnce(input, "b".repeat(64), () => Promise.resolve({ok: true,
-  json: async () => ({outcome: "running"})}), "manual"), "rejected");
-console.log("Manual password transport never turns authentication into a boot-success claim");
+  json: async () => ({outcome: "running"})}), "manual"), "running");
+for (const error_code of ["cooldown", "busy", "ssh_timeout", "ssh_unavailable"]) {
+  input.value = "DUMMY_SENTINEL";
+  let requests = 0;
+  assert.equal(await submitOnce(input, "b".repeat(64), () => {
+    requests++;
+    return Promise.resolve({ok:false,json:async()=>({error_code})});
+  }, "manual"),error_code);
+  assert.equal(requests,1);
+  assert.equal(input.value,"");
+}
+console.log("Manual recovery preserves verified running outcomes and typed failures without retrying");

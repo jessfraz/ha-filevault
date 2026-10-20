@@ -46,6 +46,16 @@ async fn status_is_authenticated_no_store_and_never_claims_unlock_ready() {
         .unwrap();
     assert_eq!(metadata["credential_role"], "integration");
     assert!(metadata.get("token").is_none());
+    assert_eq!(
+        client
+            .get(format!("{url}/v1/recovery"))
+            .bearer_auth("test-only-status-token")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
     for path in [
         "/v1/manual/session",
         "/v1/manual/attempt",

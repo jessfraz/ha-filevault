@@ -36,7 +36,18 @@ identity on that same connection. It remains pinned through rekeys.
 POST /v1/manual/attempt requires trusted identity and explicit intent, consumes
 the grant atomically, and sends one password authentication request. There is
 no client key, terminal, command, PTY, forwarding, method fallback, or retry.
-Authentication and ambiguous disconnect do not claim FileVault unlock.
+Authentication, ambiguous disconnect, and authentication timeout are followed
+by up to 120 seconds of fresh runtime checks when configured. Only verified
+runtime evidence returns Running. The password is never resent. An accepted
+attempt runs independently of its HTTP response, so browser navigation cannot
+cancel delivery halfway through or strand the concurrency guard.
+
+GET /v1/recovery returns the shared busy flag and cooldown remaining in
+milliseconds. Its bounded, fixed-message activity log and final outcome are
+visible only to the ingress user who submitted that attempt. Activity stays in
+memory, contains no credential or raw server text, and is lost on app restart.
+The integration token cannot access this route. The UI polls while active and
+counts down locally between reads, showing connection failures separately.
 
 The optional advanced action repeats enrolled preboot observations and rekeys
 its retained connection before one password request. Its Running result needs
@@ -48,7 +59,9 @@ expiry, cooldown, and ephemeral password handling. Grants cannot change modes.
 GET /v1/system supplies fast capabilities, fixed safe messages, and a read-only
 shared connection summary to authenticated ingress. The integration role gets
 no connection details. GET /v1/status adds fresh runtime evidence and a fixed
-decision. Manual availability does not depend on status-query success.
+decision. Manual availability does not depend on status-query success. The UI
+labels trusted LAN SSH with unavailable Tailscale as Locked; this display rule
+does not grant automatic credential authority or assert calibrated phase keys.
 
 Legacy groups are input-only migration formats. The resolver compares all
 specified LAN hosts, ports, usernames, and server-identity settings before

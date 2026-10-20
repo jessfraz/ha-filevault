@@ -57,12 +57,16 @@ is never silently accepted. Public host identity is different from a client
 key used for account authentication; no client key is required here.
 
 After trust, confirm the target and one password attempt, enter the password
-for that attempt, and submit once. The field clears immediately. Authentication
-and disconnect results do not prove FileVault unlock or normal startup. There
+for that attempt, and submit once. The field clears immediately. Watch SSH
+activity for authentication, startup checks, and the final result. After SSH
+responds or times out, the app checks for verified normal startup for up to two
+minutes when configured. Authentication alone does not confirm startup. There
 is no terminal, command execution, automatic retry, or saved login password.
 You can also verify server identity and cancel without entering a password.
 
-The existing startup and attempt cooldowns are 60 seconds. A new explicit
+The startup and attempt cooldowns are 60 seconds. The countdown shows the retry
+time and enables Connect automatically when ready. Cooldown, an in-progress
+operation, and a connection failure have separate messages. A new explicit
 connection is required after an expired grant, cancellation, or failed attempt.
 
 ## Read status
@@ -73,9 +77,9 @@ The actual peer must be in a Tailscale address range. A bare banner, cached
 controller presence, LAN response, or stale observation cannot establish this
 Running state. Required applications and desktop login remain separate checks.
 
-No Tailscale response means unavailable and possibly needing unlock, with
-network failure still possible. Name resolution, timeout, and identity setup
-have separate guidance. Manual LAN SSH remains available when configured.
+Trusted LAN SSH together with offline Tailscale shows Locked and offers SSH
+unlock. Without the LAN response, status remains unavailable. Name resolution,
+timeout, and identity setup have separate guidance.
 Verify this app container's route before claiming deployed live detection.
 Actual power-loss and FileVault cold-boot behavior remain unvalidated.
 

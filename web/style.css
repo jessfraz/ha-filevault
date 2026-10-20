@@ -130,6 +130,17 @@ input[type="password"] { width: 100%; border: 1px solid var(--line); border-radi
 
 .recovery-card[data-state="ssh_reachable"] { --status-ink: var(--green-ink); --status-fill: var(--green-fill); --status-line: var(--green-line); }
 .notice.configuration { color: var(--amber-ink); background: var(--amber-fill); border-color: var(--amber-line); }
+.activity-card { margin: 20px 0; padding: 22px 24px; background: var(--paper); border: 1px solid var(--blue-line); border-radius: 12px; }
+.activity-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.activity-heading h3, #dialog-activity h3 { margin: 0; font-size: 15px; }
+.activity-heading .eyebrow { margin: 0; color: var(--blue-ink); }
+#activity-summary { font-size: 14px; line-height: 1.6; }
+.activity-log { max-height: 260px; overflow-y: auto; padding: 12px 14px; margin: 14px 0; list-style: none; border: 1px solid var(--line); border-radius: 6px; background: var(--soft); font: 12px/1.8 var(--mono); }
+.activity-log:empty { display: none; }
+.activity-log li { display: flex; gap: 14px; overflow-wrap: anywhere; }
+.activity-log time { color: var(--muted); flex: 0 0 5ch; }
+.activity-log span { min-width: 0; }
+#dialog-activity { margin-top: 22px; }
 .connectivity-card { border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; margin: 20px 0; background: var(--paper); }
 .connectivity-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .connectivity-heading h3 { font-size: 15px; margin: 0; }

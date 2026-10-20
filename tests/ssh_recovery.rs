@@ -154,6 +154,261 @@ fn dummy() -> Secret {
 }
 
 #[tokio::test]
+async fn manual_password_attempt_waits_for_verified_runtime() {
+    let fixture = Fixture::start(StateFixture {
+        no_runtime: true,
+        ..Default::default()
+    })
+    .await;
+    let controller = Arc::new(
+        fixture
+            .controller()
+            .with_manual(Arc::new(fixture.manual_profile()))
+            .with_completion_limit(Duration::from_secs(3)),
+    );
+    let grant = controller.manual_challenge("user").await.unwrap();
+    let worker = controller.clone();
+    let attempt = tokio::spawn(async move {
+        worker
+            .submit_manual(
+                &grant.challenge.nonce,
+                &grant.challenge.cookie,
+                "user",
+                "https://ha.example.invalid",
+                true,
+                dummy(),
+            )
+            .await
+    });
+    fixture.state.password_received.notified().await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert!(
+        !attempt.is_finished(),
+        "password acceptance is not boot completion"
+    );
+    fixture.state.runtime.store(true, Ordering::SeqCst);
+    assert_eq!(attempt.await.unwrap(), Outcome::Running);
+    assert_eq!(fixture.state.passwords.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn manual_startup_cooldown_is_distinct_from_connection_failure() {
+    let fixture = Fixture::start(StateFixture::default()).await;
+    let controller = Controller::new(
+        Arc::new(Disabled),
+        "https://ha.example.invalid".into(),
+        Instant::now(),
+    )
+    .with_manual(Arc::new(fixture.manual_profile()));
+    assert!(matches!(
+        controller.manual_challenge("user").await,
+        Err(Failure::Cooldown)
+    ));
+    assert_eq!(fixture.state.passwords.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn cooldown_reports_remaining_time_and_expires_without_an_attempt() {
+    let fixture = Fixture::start(StateFixture::default()).await;
+    let controller = Controller::new(
+        Arc::new(Disabled),
+        "https://ha.example.invalid".into(),
+        Instant::now() - Duration::from_millis(59_900),
+    )
+    .with_manual(Arc::new(fixture.manual_profile()));
+    let report = controller.recovery_status("user").await;
+    assert!(!report.busy);
+    assert!((1..=100).contains(&report.retry_after_ms));
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    assert_eq!(controller.recovery_status("user").await.retry_after_ms, 0);
+    assert!(controller.manual_challenge("user").await.is_ok());
+    assert_eq!(fixture.state.passwords.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn http_cooldown_and_failed_connection_have_distinct_codes() {
+    use filevault::api::{self, Access, Context};
+    #[derive(serde::Deserialize)]
+    struct ErrorBody {
+        error_code: String,
+    }
+    let fixture = Fixture::start(StateFixture::default()).await;
+    for cooling in [true, false] {
+        let manual = if cooling {
+            fixture.manual_profile()
+        } else {
+            let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = socket.local_addr().unwrap().port();
+            drop(socket);
+            SshManual::new(ManualConfig {
+                enabled: true,
+                host: "127.0.0.1".into(),
+                port,
+                username: "fixture-user".into(),
+                trusted_public_keys: vec![],
+            })
+            .unwrap()
+        };
+        let controller = Controller::new(
+            Arc::new(Disabled),
+            "https://ha.example.invalid".into(),
+            Instant::now()
+                - if cooling {
+                    Duration::ZERO
+                } else {
+                    Duration::from_secs(61)
+                },
+        )
+        .with_manual(Arc::new(manual));
+        let server = api::start(
+            "127.0.0.1:0".parse().unwrap(),
+            Arc::new(Context::with_controller(
+                Access::Ingress {
+                    peer: "127.0.0.1".parse().unwrap(),
+                    users: ["user".into()].into(),
+                },
+                Arc::new(controller),
+            )),
+        )
+        .unwrap();
+        let response = reqwest::Client::new()
+            .post(format!("http://{}/v1/manual/session", server.local_addr()))
+            .header("x-remote-user-id", "user")
+            .header("origin", "https://ha.example.invalid")
+            .header("sec-fetch-site", "same-origin")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), if cooling { 429 } else { 502 });
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert_eq!(response.headers().contains_key("retry-after"), cooling);
+        let body: ErrorBody = response.json().await.unwrap();
+        assert_eq!(
+            body.error_code,
+            if cooling {
+                "cooldown"
+            } else {
+                "ssh_unavailable"
+            }
+        );
+        server.close().await.unwrap();
+    }
+}
+
+#[tokio::test]
+async fn live_ssh_progress_is_user_scoped_and_survives_http_disconnect() {
+    use filevault::api::{self, Access, Context};
+    #[derive(serde::Deserialize)]
+    struct Event {
+        message: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct Activity {
+        active: bool,
+        events: Vec<Event>,
+        outcome: Option<String>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Status {
+        busy: bool,
+        activity: Option<Activity>,
+    }
+    let fixture = Fixture::start(StateFixture {
+        hold_password: true,
+        ..Default::default()
+    })
+    .await;
+    let controller = Arc::new(fixture.manual_controller());
+    let grant = controller.manual_challenge("user").await.unwrap();
+    let server = api::start(
+        "127.0.0.1:0".parse().unwrap(),
+        Arc::new(Context::with_controller(
+            Access::Ingress {
+                peer: "127.0.0.1".parse().unwrap(),
+                users: ["user".into(), "other".into()].into(),
+            },
+            controller.clone(),
+        )),
+    )
+    .unwrap();
+    let base = format!("http://{}", server.local_addr());
+    let client = reqwest::Client::new();
+    let attempt = client
+        .post(format!("{base}/v1/manual/attempt"))
+        .header("x-remote-user-id", "user")
+        .header("origin", "https://ha.example.invalid")
+        .header("sec-fetch-site", "same-origin")
+        .header("content-type", "application/octet-stream")
+        .header("x-filevault-nonce", grant.challenge.nonce)
+        .header("cookie", format!("fv_session={}", grant.challenge.cookie))
+        .header("x-filevault-confirm", "manual_ssh")
+        .body("DUMMY_SENTINEL");
+    let request = tokio::spawn(async move { attempt.send().await });
+    fixture.state.password_received.notified().await;
+    let response = client
+        .get(format!("{base}/v1/recovery"))
+        .header("x-remote-user-id", "user")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    let report: Status = response.json().await.unwrap();
+    assert!(report.busy);
+    let activity = report.activity.unwrap();
+    assert!(activity.active);
+    assert!(
+        activity
+            .events
+            .iter()
+            .any(|e| e.message.contains("waiting for the server response"))
+    );
+    assert!(
+        activity
+            .events
+            .iter()
+            .all(|e| !e.message.contains("DUMMY_SENTINEL"))
+    );
+    let other: Status = client
+        .get(format!("{base}/v1/recovery"))
+        .header("x-remote-user-id", "other")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(other.busy);
+    assert!(other.activity.is_none());
+    request.abort();
+    let _ = request.await;
+    fixture.state.release_password.notify_one();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if !controller.recovery_status("user").await.busy {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let finished: Status = client
+        .get(format!("{base}/v1/recovery"))
+        .header("x-remote-user-id", "user")
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let activity = finished.activity.unwrap();
+    assert!(!activity.active);
+    assert_eq!(activity.outcome.as_deref(), Some("authenticated"));
+    assert_eq!(fixture.state.passwords.load(Ordering::SeqCst), 1);
+    server.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn password_once_then_distinct_runtime_identity_confirms_running() {
     for disconnect in [false, true] {
         let fixture = Fixture::start(StateFixture {
@@ -421,7 +676,7 @@ async fn manual_action_is_available_even_when_running_is_detected() {
                 dummy()
             )
             .await,
-        Outcome::Authenticated
+        Outcome::Running
     );
     assert_eq!(fixture.state.passwords.load(Ordering::SeqCst), 1);
 }

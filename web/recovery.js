@@ -19,10 +19,14 @@ export async function submitOnce(input, nonce, request = fetch, mode = "automati
     // Fetch copies BufferSource bodies. This does not erase browser/network copies.
     bytes.fill(0);
     const response = await pending;
-    if (!response.ok) return "rejected";
+    if (!response.ok) {
+      const failure = await response.json();
+      return ["cooldown", "busy", "ssh_timeout", "ssh_unavailable", "ssh_identity", "ssh_resolution", "not_configured"].includes(failure?.error_code)
+        ? failure.error_code : "rejected";
+    }
     const result = await response.json();
     const allowed = mode === "manual"
-      ? ["authenticated", "unconfirmed", "rejected", "timed_out"]
+      ? ["running", "booting", "authenticated", "unconfirmed", "rejected", "timed_out"]
       : ["running", "booting", "rejected", "timed_out"];
     return allowed.includes(result?.outcome)
       ? result.outcome : "rejected";

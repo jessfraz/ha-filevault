@@ -1,7 +1,7 @@
 use crate::{
     config::MacConfig,
     connectivity::{ConnectionChecks, ConnectivityReport},
-    guard::AttemptGuard,
+    guard::{AttemptGuard, Reject},
     policy::{Decision, Evidence, State, decide},
     runtime::{RuntimeCheck, RuntimeObserver},
     secret::Secret,
@@ -9,6 +9,8 @@ use crate::{
     store::HistoryPage,
     transport::{Failure, Session, Transport},
 };
+use schemars::JsonSchema;
+use serde::Serialize;
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -19,7 +21,8 @@ use tokio::sync::{Mutex, Semaphore};
 pub const CONNECT_LIMIT: Duration = Duration::from_secs(5);
 pub const ATTEMPT_LIMIT: Duration = Duration::from_secs(30);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
 pub enum Outcome {
     Running,
     Booting,
@@ -27,6 +30,32 @@ pub enum Outcome {
     TimedOut,
     Authenticated,
     Unconfirmed,
+}
+
+#[derive(Clone, Serialize, JsonSchema)]
+pub struct RecoveryEvent {
+    elapsed_ms: u64,
+    message: &'static str,
+}
+
+#[derive(Clone, Serialize, JsonSchema)]
+pub struct RecoveryActivity {
+    pub events: Vec<RecoveryEvent>,
+    pub outcome: Option<Outcome>,
+    pub active: bool,
+}
+
+#[derive(Serialize, JsonSchema)]
+pub struct RecoveryStatus {
+    pub busy: bool,
+    pub retry_after_ms: u64,
+    pub activity: Option<RecoveryActivity>,
+}
+
+struct Activity {
+    user: String,
+    started: Instant,
+    report: RecoveryActivity,
 }
 
 pub struct Challenge {
@@ -52,6 +81,7 @@ struct Pending {
 struct Inner {
     guard: AttemptGuard,
     pending: HashMap<String, Pending>,
+    activity: Option<Activity>,
 }
 
 pub struct Controller {
@@ -76,6 +106,88 @@ fn random_token() -> Result<String, Failure> {
 }
 
 impl Controller {
+    pub async fn recovery_status(&self, user: &str) -> RecoveryStatus {
+        let inner = self.inner.lock().await;
+        RecoveryStatus {
+            busy: inner.guard.busy(),
+            retry_after_ms: inner.guard.retry_after(Instant::now()).as_millis() as u64,
+            activity: inner
+                .activity
+                .as_ref()
+                .filter(|a| a.user == user)
+                .map(|a| a.report.clone()),
+        }
+    }
+
+    async fn available(&self) -> Result<(), Failure> {
+        self.inner
+            .lock()
+            .await
+            .guard
+            .check(Instant::now())
+            .map_err(|error| match error {
+                Reject::Busy => Failure::Busy,
+                Reject::Cooldown => Failure::Cooldown,
+                _ => Failure::Rejected,
+            })
+    }
+
+    async fn start_activity(&self, user: &str) {
+        self.inner.lock().await.activity = Some(Activity {
+            user: user.into(),
+            started: Instant::now(),
+            report: RecoveryActivity {
+                events: Vec::new(),
+                outcome: None,
+                active: true,
+            },
+        });
+        self.event(user, "SSH session prepared; retained connection ready.")
+            .await;
+    }
+
+    async fn event(&self, user: &str, message: &'static str) {
+        let mut inner = self.inner.lock().await;
+        if let Some(activity) = inner.activity.as_mut().filter(|a| a.user == user) {
+            // Fixed vocabulary only: no server text, credential bytes or errors.
+            if activity.report.events.len() < 32 {
+                activity.report.events.push(RecoveryEvent {
+                    elapsed_ms: activity.started.elapsed().as_millis() as u64,
+                    message,
+                });
+            }
+        }
+    }
+
+    async fn finish_activity(&self, user: &str, outcome: Outcome) -> Outcome {
+        self.event(user, match outcome {
+            Outcome::Running => "Mac startup confirmed by a fresh, trusted runtime SSH response.",
+            Outcome::Booting => "SSH attempt finished, but Mac startup was not confirmed before the wait ended.",
+            Outcome::Authenticated => "SSH accepted the password. Mac startup remains unconfirmed.",
+            Outcome::Unconfirmed => "SSH disconnected after password submission. Mac startup remains unconfirmed; no password retry was made.",
+            Outcome::Rejected => "The SSH attempt was rejected. No password retry was made.",
+            Outcome::TimedOut => "SSH password authentication timed out. Delivery and unlock are unconfirmed; no retry was made.",
+        }).await;
+        let mut inner = self.inner.lock().await;
+        inner.guard.finish();
+        if let Some(activity) = inner.activity.as_mut().filter(|a| a.user == user) {
+            activity.report.active = false;
+            activity.report.outcome = Some(outcome);
+        }
+        outcome
+    }
+
+    async fn runtime_verified(&self) -> bool {
+        if let Some(runtime) = &self.runtime {
+            return matches!(tokio::time::timeout(CONNECT_LIMIT, runtime.observe()).await,
+                Ok(Ok(evidence)) if evidence.observed_at <= Instant::now()
+                    && evidence.observed_at.elapsed() <= Duration::from_secs(10));
+        }
+        tokio::time::timeout(CONNECT_LIMIT, self.transport.runtime_ready())
+            .await
+            .unwrap_or(false)
+    }
+
     pub fn new(transport: Arc<dyn Transport>, origin: String, started: Instant) -> Self {
         Self {
             transport,
@@ -89,6 +201,7 @@ impl Controller {
             inner: Arc::new(Mutex::new(Inner {
                 guard: AttemptGuard::new(origin.clone(), started),
                 pending: HashMap::new(),
+                activity: None,
             })),
             preparing: Semaphore::new(1),
             origin,
@@ -280,16 +393,11 @@ impl Controller {
     }
 
     pub async fn challenge(&self, user: &str) -> Result<Challenge, Failure> {
-        let _preparing = self
-            .preparing
-            .try_acquire()
-            .map_err(|_| Failure::Rejected)?;
+        let _preparing = self.preparing.try_acquire().map_err(|_| Failure::Busy)?;
         if !self.ready() || self.origin.is_empty() {
             return Err(Failure::Unverified);
         }
-        if !self.inner.lock().await.guard.available(Instant::now()) {
-            return Err(Failure::Rejected);
-        }
+        self.available().await?;
         if !matches!(
             tokio::time::timeout(CONNECT_LIMIT, self.transport.runtime_ready()).await,
             Ok(false)
@@ -316,13 +424,11 @@ impl Controller {
     }
 
     pub async fn manual_challenge(&self, user: &str) -> Result<ManualChallenge, Failure> {
-        let _preparing = self
-            .preparing
-            .try_acquire()
-            .map_err(|_| Failure::Rejected)?;
-        if !self.manual_ready() || !self.inner.lock().await.guard.available(Instant::now()) {
+        let _preparing = self.preparing.try_acquire().map_err(|_| Failure::Busy)?;
+        if !self.manual_ready() {
             return Err(Failure::Unverified);
         }
+        self.available().await?;
         let connection = tokio::time::timeout(
             CONNECT_LIMIT,
             self.manual.as_ref().ok_or(Failure::Unverified)?.open(),
@@ -482,6 +588,12 @@ impl Controller {
         if !accepted {
             return Outcome::Rejected;
         }
+        self.start_activity(user).await;
+        self.event(
+            user,
+            "Checking the retained SSH connection and server identity before authentication.",
+        )
+        .await;
         let mut session = pending
             .expect("accepted grant has a pending session")
             .session;
@@ -491,29 +603,51 @@ impl Controller {
                 Ok(false)
             )
         {
-            self.inner.lock().await.guard.finish();
-            return Outcome::Rejected;
+            return self.finish_activity(user, Outcome::Rejected).await;
         }
         let expected = session.observation();
         let checked = tokio::time::timeout(CONNECT_LIMIT, session.recheck()).await;
         if !matches!(checked, Ok(Ok(ref proof)) if proof.identity == expected.identity
             && (mode == AttemptMode::Manual || proof.state == State::VerifiedPreboot))
         {
-            self.inner.lock().await.guard.finish();
-            return Outcome::Rejected;
+            self.event(user, "The retained SSH connection expired, closed, or changed identity. No password was sent.").await;
+            return self.finish_activity(user, Outcome::Rejected).await;
         }
+        self.event(user, "Sending one SSH password authentication request; waiting for the server response (up to 30 seconds).").await;
         let result = tokio::time::timeout(ATTEMPT_LIMIT, session.submit(password)).await;
         // The secret has been consumed and dropped before any runtime polling.
         let outcome = match result {
-            Err(_) => Outcome::TimedOut,
-            Ok(Ok(())) if mode == AttemptMode::Manual => Outcome::Authenticated,
-            Ok(Err(Failure::DeliveryUnknown)) if mode == AttemptMode::Manual => {
-                Outcome::Unconfirmed
-            }
-            Ok(Err(Failure::DeliveryUnknown)) | Ok(Ok(())) => {
+            Err(_) | Ok(Err(Failure::DeliveryUnknown)) | Ok(Ok(())) => {
+                let authenticated = matches!(result, Ok(Ok(())));
+                let timed_out = result.is_err();
+                if mode == AttemptMode::Manual
+                    && self.runtime.is_none()
+                    && !self.transport.unlock_ready()
+                {
+                    self.event(user, "No normal-runtime check is configured. SSH authentication cannot confirm Mac startup.").await;
+                    return self
+                        .finish_activity(
+                            user,
+                            if timed_out {
+                                Outcome::TimedOut
+                            } else if authenticated {
+                                Outcome::Authenticated
+                            } else {
+                                Outcome::Unconfirmed
+                            },
+                        )
+                        .await;
+                }
+                self.event(user, if timed_out {
+                    "SSH authentication did not respond within 30 seconds. Checking whether macOS started; the password will not be resent."
+                } else if authenticated {
+                    "SSH accepted the password. Waiting up to 120 seconds for verified macOS startup."
+                } else {
+                    "SSH disconnected during authentication. FileVault may be starting macOS; checking runtime without resending the password."
+                }).await;
                 let confirmation = async {
                     loop {
-                        if self.transport.runtime_ready().await {
+                        if self.runtime_verified().await {
                             return Outcome::Running;
                         }
                         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -521,11 +655,29 @@ impl Controller {
                 };
                 tokio::time::timeout(self.completion_limit, confirmation)
                     .await
-                    .unwrap_or(Outcome::Booting)
+                    .unwrap_or(if mode == AttemptMode::Manual {
+                        if timed_out {
+                            Outcome::TimedOut
+                        } else if authenticated {
+                            Outcome::Authenticated
+                        } else {
+                            Outcome::Unconfirmed
+                        }
+                    } else if timed_out {
+                        Outcome::TimedOut
+                    } else {
+                        Outcome::Booting
+                    })
             }
-            Ok(Err(_)) => Outcome::Rejected,
+            Ok(Err(_)) => {
+                self.event(
+                    user,
+                    "The SSH server rejected authentication for the configured account.",
+                )
+                .await;
+                Outcome::Rejected
+            }
         };
-        self.inner.lock().await.guard.finish();
-        outcome
+        self.finish_activity(user, outcome).await
     }
 }

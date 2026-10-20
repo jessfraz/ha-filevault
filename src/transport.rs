@@ -10,6 +10,8 @@ pub type FutureResult<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure {
+    Busy,
+    Cooldown,
     Unavailable,
     Resolution,
     Identity,

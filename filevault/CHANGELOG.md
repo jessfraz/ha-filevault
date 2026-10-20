@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.0-alpha.8
+
+- Show Locked when trusted LAN SSH is reachable and Tailscale is offline.
+- Wait for SSH authentication and verified macOS startup after one password
+  attempt, including the disconnect that can occur during FileVault unlock.
+- Show live SSH activity and the final result in the dialog and recovery page.
+- Separate connection failures from cooldown, with a countdown and retry time.
+- Keep submitted attempts running when the browser navigates away, without
+  resending the password.
+
 ## 0.1.0-alpha.5
 
 - Add ingress-only connection checks for both shared-profile endpoints, with

@@ -113,9 +113,16 @@ checks can then use that trusted identity without a login password.
 
 The retained cryptographic connection and any rekey use the selected identity.
 There is no reconnect, shell, command, PTY, forwarding, method fallback, or
-automatic password retry. Accepted manual authentication reports authenticated,
-not FileVault-unlocked. Ambiguous disconnect reports unconfirmed. Check status
-and required services separately.
+automatic password retry. After authentication, disconnect, or authentication
+timeout, the app waits up to two minutes for a fresh verified runtime response.
+It reports Running only after that response. Otherwise it reports whether SSH
+accepted the password, disconnected, or timed out without confirming startup.
+If no runtime check is configured, authentication stays unconfirmed immediately.
+
+The SSH activity panel shows authentication, startup checks, and the final
+result while the operation runs, including after returning to the page. Its
+diagnostics contain fixed messages, never passwords or raw server output.
+Cooldown has its own countdown and retry time; connection failures are separate.
 
 ## Automatic running checks
 
@@ -128,9 +135,11 @@ and reports Running. It does not prove desktop login or application health.
 
 DNS failure, timeout, missing identity verification, or unreachable tailnet is
 reported distinctly. Failure may mean the Mac needs unlocking, or networking
-may be unavailable. It never proves the Mac is locked or powered off and never
-blocks an explicit manual LAN connection. Old observations cannot establish
-Running. A trusted LAN handshake by itself means only SSH online.
+may be unavailable. When trusted LAN SSH responds while Tailscale is offline,
+the UI shows Locked and offers manual SSH unlock. This is the recovery display
+rule; it does not enable the separate verified-preboot credential path.
+Old observations cannot establish Running. A trusted LAN handshake by itself
+means SSH online.
 
 The Tailscale path relies on the existing Mac's normal-OS Tailscale service.
 Its actual cold-boot availability and the app container's route must be checked

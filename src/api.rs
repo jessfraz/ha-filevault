@@ -1,18 +1,18 @@
 use crate::{
     connectivity::ConnectivityReport,
-    controller::{Controller, Outcome},
+    controller::{Controller, Outcome, RecoveryStatus},
     policy::Decision,
     runtime::RuntimeCheck,
     secret::Secret,
     ssh_manual::ManualTarget,
     store::HistoryPage,
-    transport::Disabled,
+    transport::{Disabled, Failure},
 };
 use anyhow::{Context as _, Result};
 use dropshot::{
-    ApiDescription, Body, ClientErrorStatusCode as Status, ConfigDropshot, HttpError,
-    HttpResponseHeaders, HttpResponseOk, HttpServer, HttpServerStarter, Query, RequestContext,
-    UntypedBody, endpoint,
+    ApiDescription, Body, ClientErrorStatusCode as Status, ConfigDropshot, ErrorStatusCode,
+    HttpError, HttpResponseHeaders, HttpResponseOk, HttpServer, HttpServerStarter, Query,
+    RequestContext, UntypedBody, endpoint,
 };
 use http::Response;
 use schemars::JsonSchema;
@@ -126,6 +126,79 @@ async fn system(
 
 fn deny(code: Status, message: &'static str) -> HttpError {
     HttpError::for_client_error(None, code, message.into())
+}
+
+async fn recovery_error(controller: &Controller, failure: Failure) -> HttpError {
+    let (error_status, code, message) = match failure {
+        Failure::Cooldown => (
+            ErrorStatusCode::TOO_MANY_REQUESTS,
+            "cooldown",
+            "SSH retry cooldown is active. No password was sent.",
+        ),
+        Failure::Busy => (
+            ErrorStatusCode::CONFLICT,
+            "busy",
+            "An SSH operation is already in progress. No password was sent.",
+        ),
+        Failure::Timeout => (
+            ErrorStatusCode::GATEWAY_TIMEOUT,
+            "ssh_timeout",
+            "The SSH connection timed out. No password was sent.",
+        ),
+        Failure::Resolution => (
+            ErrorStatusCode::BAD_GATEWAY,
+            "ssh_resolution",
+            "The SSH hostname could not be resolved. No password was sent.",
+        ),
+        Failure::Identity => (
+            ErrorStatusCode::BAD_GATEWAY,
+            "ssh_identity",
+            "SSH server identity verification failed. No password was sent.",
+        ),
+        Failure::Unverified => (
+            ErrorStatusCode::CONFLICT,
+            "not_configured",
+            "SSH recovery is not configured or its required evidence is unavailable. No password was sent.",
+        ),
+        _ => (
+            ErrorStatusCode::BAD_GATEWAY,
+            "ssh_unavailable",
+            "Could not connect to the SSH server. No password was sent.",
+        ),
+    };
+    let mut error = HttpError {
+        status_code: error_status,
+        error_code: Some(code.into()),
+        external_message: message.into(),
+        internal_message: message.into(),
+        headers: None,
+    };
+    let mut headers = http::HeaderMap::new();
+    headers.insert("cache-control", http::HeaderValue::from_static("no-store"));
+    if failure == Failure::Cooldown {
+        let report = controller.recovery_status("").await;
+        if let Ok(value) = report.retry_after_ms.div_ceil(1000).to_string().parse() {
+            headers.insert("retry-after", value);
+        }
+    }
+    error.headers = Some(Box::new(headers));
+    error
+}
+
+/// Live fixed-vocabulary SSH diagnostics, visible only to their ingress user.
+#[endpoint {method=GET,path="/v1/recovery",tags=["recovery"]}]
+async fn recovery_status(
+    r: RequestContext<Arc<Context>>,
+) -> Result<HttpResponseHeaders<HttpResponseOk<RecoveryStatus>>, HttpError> {
+    web_access(&r)?;
+    let user =
+        header(&r, "x-remote-user-id").ok_or_else(|| deny(Status::FORBIDDEN, "access denied"))?;
+    let report = r.context().controller.recovery_status(user).await;
+    let mut response = HttpResponseHeaders::new_unnamed(HttpResponseOk(report));
+    response
+        .headers_mut()
+        .insert("cache-control", http::HeaderValue::from_static("no-store"));
+    Ok(response)
 }
 
 fn header<'a>(r: &'a RequestContext<Arc<Context>>, key: &str) -> Option<&'a str> {
@@ -270,12 +343,11 @@ async fn prepare(
     if !body.as_bytes().is_empty() {
         return Err(deny(Status::BAD_REQUEST, "empty request required"));
     }
-    let challenge = r
-        .context()
-        .controller
-        .challenge(user)
-        .await
-        .map_err(|_| deny(Status::CONFLICT, "verified preboot unavailable"))?;
+    let challenge = r.context().controller.challenge(user).await;
+    let challenge = match challenge {
+        Ok(challenge) => challenge,
+        Err(failure) => return Err(recovery_error(&r.context().controller, failure).await),
+    };
     let cookie = format!(
         "fv_session={}; Secure; HttpOnly; SameSite=Strict; Path={base}; Max-Age=60",
         challenge.cookie
@@ -313,12 +385,11 @@ async fn prepare_manual(
     if !body.as_bytes().is_empty() {
         return Err(deny(Status::BAD_REQUEST, "empty request required"));
     }
-    let manual = r
-        .context()
-        .controller
-        .manual_challenge(user)
-        .await
-        .map_err(|_| deny(Status::CONFLICT, "pinned SSH connection unavailable"))?;
+    let manual = r.context().controller.manual_challenge(user).await;
+    let manual = match manual {
+        Ok(manual) => manual,
+        Err(failure) => return Err(recovery_error(&r.context().controller, failure).await),
+    };
     let cookie = format!(
         "fv_session={}; Secure; HttpOnly; SameSite=Strict; Path={base}; Max-Age=60",
         manual.challenge.cookie
@@ -430,30 +501,29 @@ async fn attempt(
         .ok_or_else(|| deny(Status::FORBIDDEN, "request grant required"))?;
     let password = Secret::from_bytes(body.as_bytes().to_vec())
         .ok_or_else(|| deny(Status::BAD_REQUEST, "invalid request"))?;
-    let result = if manual {
-        r.context()
-            .controller
-            .submit_manual(
-                nonce,
-                cookie,
-                user,
-                header(&r, "origin").unwrap_or(""),
-                header(&r, "x-filevault-confirm") == Some("manual_ssh"),
-                password,
-            )
-            .await
-    } else {
-        r.context()
-            .controller
-            .submit(
-                nonce,
-                cookie,
-                user,
-                header(&r, "origin").unwrap_or(""),
-                password,
-            )
-            .await
-    };
+    // Release the HTTP body's copy before the longer startup observation.
+    drop(body);
+    // Own the bounded attempt independently of the HTTP response. Closing the
+    // browser must not cancel password delivery midway or leave the guard busy.
+    let controller = r.context().controller.clone();
+    let nonce = nonce.to_owned();
+    let cookie = cookie.to_owned();
+    let user = user.to_owned();
+    let origin = header(&r, "origin").unwrap_or("").to_owned();
+    let confirmed = header(&r, "x-filevault-confirm") == Some("manual_ssh");
+    let result = tokio::spawn(async move {
+        if manual {
+            controller
+                .submit_manual(&nonce, &cookie, &user, &origin, confirmed, password)
+                .await
+        } else {
+            controller
+                .submit(&nonce, &cookie, &user, &origin, password)
+                .await
+        }
+    })
+    .await
+    .map_err(|_| HttpError::for_internal_error("SSH operation interrupted".into()))?;
     let outcome = match result {
         Outcome::Running => "running",
         Outcome::Booting => "booting",
@@ -586,6 +656,8 @@ pub fn description() -> Result<ApiDescription<Arc<Context>>> {
     let mut api = ApiDescription::new();
     api.register(status).context("register status")?;
     api.register(system).context("register pairing metadata")?;
+    api.register(recovery_status)
+        .context("register live recovery diagnostics")?;
     api.register(connectivity)
         .context("register pre-authentication connectivity")?;
     api.register(connection_history)

@@ -26,6 +26,13 @@
       </div>
       <p id="notice" class="notice" role="status" aria-live="polite"></p>
       <p id="configuration" class="notice configuration" role="status" hidden></p>
+      <p id="recovery-availability" class="notice configuration" role="status" hidden></p>
+      <section id="ssh-activity" class="activity-card" aria-labelledby="ssh-activity-title" hidden>
+        <div class="activity-heading"><h3 id="ssh-activity-title">SSH activity</h3><span id="activity-state" class="eyebrow"></span></div>
+        <p id="activity-summary" role="status" aria-live="polite"></p>
+        <ol id="activity-log" class="activity-log" aria-label="SSH diagnostics"></ol>
+        <p class="field-help">Live SSH and startup diagnostics. Passwords and raw server output are never recorded.</p>
+      </section>
       <section class="profile-summary" aria-labelledby="connection-title">
         <div><p class="eyebrow">ONE MAC CONNECTION</p><h3 id="connection-title">Shared connection</h3>
           <p class="field-help">Edit this profile once in FileVault app settings. Manual login and automatic checks use it.</p></div>
@@ -86,6 +93,7 @@
         <p class="eyebrow">ONE-TIME RECOVERY</p>
         <h2 id="recovery-title">Unlock FileVault</h2>
         <p id="attempt-help" class="muted">Enter the password for this attempt. The field clears as soon as you submit.</p>
+        <div id="recovery-credentials">
         <div id="manual-details" hidden>
           <dl class="target-details"><div><dt>SSH account</dt><dd id="manual-target"></dd></div><div><dt>Server fingerprint</dt><dd id="manual-key"></dd></div></dl>
           <p id="host-trust-status" class="muted"></p>
@@ -99,11 +107,13 @@
         <label for="password">Password</label>
         <input id="password" type="password" autocomplete="off"
           spellcheck="false" autocapitalize="none" maxlength="1024" required>
+        </div>
         <div class="actions">
           <button type="button" id="cancel-recovery" class="quiet">Cancel</button>
           <button type="submit" id="submit-recovery">Unlock</button>
         </div>
         <p id="recovery-status" role="status" aria-live="polite"></p>
+        <div id="dialog-activity" hidden><h3>SSH activity</h3><ol id="dialog-log" class="activity-log" aria-label="SSH diagnostics"></ol></div>
       </form>
     </dialog>
     <footer class="app-footer"><p>FileVault <span id="app-version" class="app-version"></span></p><a href="https://github.com/jessfraz/ha-filevault" target="_blank" rel="noopener noreferrer">Source code ↗</a></footer>

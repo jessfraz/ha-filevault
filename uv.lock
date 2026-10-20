@@ -960,7 +960,7 @@ wheels = [
 
 [[package]]
 name = "filevault-home-assistant"
-version = "0.1.0a6"
+version = "0.1.0a8"
 source = { virtual = "." }
 
 [package.dev-dependencies]

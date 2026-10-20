@@ -402,6 +402,85 @@
         ],
         "type": "object"
       },
+      "Outcome": {
+        "enum": [
+          "running",
+          "booting",
+          "rejected",
+          "timed_out",
+          "authenticated",
+          "unconfirmed"
+        ],
+        "type": "string"
+      },
+      "RecoveryActivity": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/RecoveryEvent"
+            },
+            "type": "array"
+          },
+          "outcome": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Outcome"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "active",
+          "events"
+        ],
+        "type": "object"
+      },
+      "RecoveryEvent": {
+        "properties": {
+          "elapsed_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "elapsed_ms",
+          "message"
+        ],
+        "type": "object"
+      },
+      "RecoveryStatus": {
+        "properties": {
+          "activity": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RecoveryActivity"
+              }
+            ],
+            "nullable": true
+          },
+          "busy": {
+            "type": "boolean"
+          },
+          "retry_after_ms": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "busy",
+          "retry_after_ms"
+        ],
+        "type": "object"
+      },
       "RunState": {
         "enum": [
           "checking",
@@ -546,7 +625,7 @@
   "info": {
     "description": "Status suggestions, verified-phase recovery, and explicitly confirmed manual SSH authentication to pinned targets. Authentication does not certify FileVault unlock.",
     "title": "FileVault API",
-    "version": "0.1.0-alpha.7"
+    "version": "0.1.0-alpha.8"
   },
   "openapi": "3.0.3",
   "paths": {
@@ -856,6 +935,33 @@
             "$ref": "#/components/responses/Error"
           }
         },
+        "tags": [
+          "recovery"
+        ]
+      }
+    },
+    "/v1/recovery": {
+      "get": {
+        "operationId": "recovery_status",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryStatus"
+                }
+              }
+            },
+            "description": "successful operation"
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Live fixed-vocabulary SSH diagnostics, visible only to their ingress user.",
         "tags": [
           "recovery"
         ]

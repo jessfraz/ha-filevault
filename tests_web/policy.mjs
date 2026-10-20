@@ -15,12 +15,16 @@ const js = await readFile(new URL("../web/app.js", import.meta.url), "utf8");
 assert.doesNotMatch(js, /localStorage|sessionStorage|indexedDB|console\./);
 console.log("UI state policy and masked-field checks passed");
 
-for (const runtime_check of ["unavailable", "stale"]) {
+for (const runtime_check of ["unavailable", "timed_out"]) {
   const view = presentation({decision:{state:"ssh_reachable"},runtime_check});
-  assert.equal(view.label,"Unavailable");
-  assert.match(view.explanation,/may need unlocking.*network/);
+  assert.equal(view.label,"Locked");
+  assert.match(view.explanation,/LAN SSH is reachable and Tailscale is offline/);
+  assert.equal(view.statusState,"verified_preboot");
   assert.equal(view.canUnlock,false);
 }
+assert.equal(presentation({decision:{state:"ssh_reachable"},runtime_check:"stale"}).label,"SSH online");
+assert.equal(presentation({decision:{state:"verified_preboot",unlock_available:false}}).label,"Locked");
+assert.equal(presentation({decision:{state:"unknown"},runtime_check:"unavailable"}).label,"Unavailable");
 assert.match(presentation({decision:{state:"running"},runtime_check:"verified"}).explanation,/responded now.*Tailscale/);
 assert.match(presentation({decision:{state:"unknown"},runtime_check:"identity_needed"}).explanation,/stop before entering a password/);
 const connection={host:"mac.example.invalid",tailscale_host:"100.64.0.2"};

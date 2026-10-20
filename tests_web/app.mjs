@@ -30,6 +30,24 @@ const element = (name) => {
 };
 const visibility = new Element();
 const windowEvents = new Element();
+const realSetTimeout = globalThis.setTimeout;
+const realClearTimeout = globalThis.clearTimeout;
+const cadenceTimers = new Set();
+let clockNow = Date.now();
+Date.now = () => clockNow;
+globalThis.setTimeout = (callback, delay, ...args) => {
+  if (![250, 1_000].includes(delay)) return realSetTimeout(callback, delay, ...args);
+  const timer = {delay, callback: () => callback(...args), unref() {}};
+  cadenceTimers.add(timer);
+  return timer;
+};
+globalThis.clearTimeout = timer => { if (!cadenceTimers.delete(timer)) realClearTimeout(timer); };
+const tick = async delay => {
+  const timer = [...cadenceTimers].find(timer => timer.delay === delay);
+  assert.ok(timer, `Expected a ${delay} ms UI timer`);
+  cadenceTimers.delete(timer);
+  await timer.callback();
+};
 globalThis.document = {hidden: false, documentElement: {dataset: {}},
   createElement: () => new Element(),
   getElementById: element, addEventListener: visibility.addEventListener.bind(visibility)};
@@ -45,9 +63,16 @@ let checks = 0;
 let checkDeferred = null;
 let historyRuns = [];
 let attemptDeferred = null;
+let sessionError = null;
+let recoveryReport = {busy:false,retry_after_ms:0,activity:null};
 const target = () => ({host: "mac.example.invalid", port: 22, username: "fixture-user",
   host_key_fingerprint: "SHA256:" + "a".repeat(43), trust_status: trust, trusted: trust === "trusted"});
 globalThis.fetch = async (path, options) => {
+  if (path === "v1/recovery") {
+    assert.equal(options.method,undefined);
+    assert.equal(options.body,undefined);
+    return {ok:true,json:async()=>recoveryReport};
+  }
   if (path.startsWith("v1/connectivity/history")) return {ok:true,json:async()=>({connection,results:historyRuns,
     next:null,last_success:{lan:{reachable_at:null,verified_at:null},tailscale:{reachable_at:null,verified_at:null}}})};
   if (path === "v1/connectivity") {
@@ -71,6 +96,7 @@ globalThis.fetch = async (path, options) => {
       transport_ready: true, manual_ready: true, connection, configuration_errors: [], configuration_notes:[]})};
   }
   if (path === "v1/session" || path === "v1/manual/session") {
+    if (sessionError) return {ok:false,status:sessionError.status,json:async()=>({error_code:sessionError.code})};
     if (deferred) return deferred;
     return {ok: true, json: async () => ({nonce: "a".repeat(64), expires_in: 60, target: target()})};
   }
@@ -103,6 +129,35 @@ assert.equal(attempts,0);
 assert.equal(trusts,0);
 assert.equal(element("recovery").open,false);
 assert.equal(element("state").textContent,"Unknown");
+
+// Cooldown is a timed limit, not a failed connection, and expires without a click.
+sessionError={status:429,code:"cooldown"};
+recoveryReport={busy:false,retry_after_ms:62_000,activity:null};
+await element("manual-ssh").fire("click");
+assert.match(element("notice").textContent,/cooldown is active/);
+assert.match(element("recovery-availability").textContent,/1:02 remaining/);
+assert.equal(element("manual-ssh").disabled,true);
+assert.equal(element("recovery").open,false);
+const exactRetry = new Date(clockNow + 62_000).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
+assert.ok(element("recovery-availability").textContent.includes(exactRetry));
+clockNow += 1_000;
+await tick(250);
+assert.match(element("recovery-availability").textContent,/1:01 remaining/);
+clockNow += 61_000;
+await tick(250);
+assert.match(element("recovery-availability").textContent,/cooldown is over/);
+assert.match(element("notice").textContent,/cooldown is over/);
+assert.equal(element("manual-ssh").disabled,false);
+assert.equal(attempts,0);
+
+sessionError={status:502,code:"ssh_unavailable"};
+recoveryReport={busy:false,retry_after_ms:0,activity:null};
+await element("manual-ssh").fire("click");
+assert.match(element("notice").textContent,/Could not connect.*SSH server/);
+assert.doesNotMatch(element("notice").textContent,/cooldown/);
+assert.equal(element("manual-ssh").disabled,false);
+sessionError=null;
+
 await element("manual-ssh").fire("click");
 assert.equal(element("recovery").open, true);
 assert.equal(element("password").disabled, false);
@@ -119,6 +174,9 @@ assert.equal(attempts, 1);
 assert.equal(element("password").value, "");
 assert.equal(element("recovery").open, false);
 assert.match(element("notice").textContent, /not confirmed/);
+assert.equal(element("ssh-activity").hidden,false);
+assert.match(element("activity-summary").textContent,/SSH accepted the password/);
+assert.equal(element("state").textContent,"Unknown");
 await element("recovery-form").fire("submit");
 assert.equal(attempts, 1);
 
@@ -202,6 +260,27 @@ element("manual-confirm").checked=true;
 element("password").value="DUMMY_SENTINEL";
 const submitting=element("recovery-form").fire("submit");
 assert.equal(attempts,5);
+assert.equal(element("dialog-activity").hidden,false);
+assert.equal(element("recovery-credentials").hidden,true);
+assert.match(element("recovery-status").textContent,/Waiting for authentication and macOS startup/);
+recoveryReport={busy:true,retry_after_ms:30_000,activity:{active:true,outcome:null,events:[
+  {elapsed_ms:0,message:"SSH password authentication started."},
+  {elapsed_ms:2_000,message:"SSH accepted the password. Waiting for macOS over Tailscale."},
+]}};
+await tick(1_000);
+assert.equal(element("activity-log").children.length,2);
+assert.equal(element("dialog-log").children.length,2);
+assert.equal(element("dialog-log").children[1].children[0].textContent,"00:02");
+assert.match(element("recovery-status").textContent,/SSH accepted the password.*Waiting/);
+assert.doesNotMatch(element("activity-log").children.map(row=>row.children[1].textContent).join(" "),/DUMMY_SENTINEL/);
+clockNow += 30_000;
+recoveryReport.retry_after_ms=0;
+await tick(250);
+assert.match(element("recovery-availability").textContent,/cooldown is over.*still running/);
+assert.doesNotMatch(element("recovery-availability").textContent,/connect again now/);
+assert.equal(element("manual-ssh").disabled,true);
+await element("recovery-form").fire("submit");
+assert.equal(attempts,5);
 await element("recovery").fire("cancel");
 await element("recovery").fire("pointerdown",{clientX:10,clientY:10});
 await element("recovery").fire("click",{clientX:10,clientY:10});
@@ -209,11 +288,38 @@ assert.equal(element("recovery").open,true);
 assert.equal(element("password").value,"");
 assert.equal(attempts,5);
 assert.match(element("recovery-status").textContent,/in progress/);
-finishAttempt({ok:true,json:async()=>({outcome:"authenticated"})});
+state="running";
+recoveryReport={busy:false,retry_after_ms:15_000,activity:{active:false,outcome:"running",events:[
+  ...recoveryReport.activity.events,{elapsed_ms:15_000,message:"macOS responded over Tailscale. The Mac is running."},
+]}};
+finishAttempt({ok:true,json:async()=>({outcome:"running"})});
 await submitting;
 attemptDeferred=null;
 assert.equal(element("recovery").open,false);
-assert.match(element("notice").textContent,/not confirmed/);
+assert.match(element("notice").textContent,/Mac is running/);
+assert.equal(element("state").textContent,"Running");
+assert.equal(element("ssh-activity").hidden,false);
+assert.equal(element("activity-log").children.length,3);
+assert.equal(element("manual-ssh").disabled,true);
+clockNow += 15_000;
+await tick(250);
+assert.equal(element("manual-ssh").disabled,false);
+recoveryReport={...recoveryReport,retry_after_ms:0};
+
+// A recovered in-flight trace can disappear after an app restart. Stop polling
+// the stale activity and clearly retain an unconfirmed result without retrying.
+recoveryReport={busy:true,retry_after_ms:0,activity:{active:true,outcome:null,events:[
+  {elapsed_ms:0,message:"Waiting for macOS to finish starting."},
+]}};
+await element("refresh").fire("click");
+assert.equal(element("manual-ssh").disabled,true);
+recoveryReport={busy:false,retry_after_ms:0,activity:null};
+await tick(1_000);
+assert.match(element("activity-summary").textContent,/no longer available.*unconfirmed/);
+assert.equal(element("activity-state").textContent,"Complete");
+assert.equal(element("manual-ssh").disabled,false);
+assert.equal([...cadenceTimers].some(timer=>timer.delay===1_000),false);
+assert.equal(attempts,5);
 
 const good={dns:"resolved",tcp:"connected",ssh:"trusted",error:null};
 state="unknown";

@@ -28,6 +28,24 @@ pub struct AttemptGuard {
 }
 
 impl AttemptGuard {
+    pub fn busy(&self) -> bool {
+        self.busy
+    }
+
+    pub fn retry_after(&self, now: Instant) -> Duration {
+        self.cooldown_until.saturating_duration_since(now)
+    }
+
+    pub fn check(&self, now: Instant) -> Result<(), Reject> {
+        if self.busy {
+            Err(Reject::Busy)
+        } else if now < self.cooldown_until {
+            Err(Reject::Cooldown)
+        } else {
+            Ok(())
+        }
+    }
+
     pub fn available(&self, now: Instant) -> bool {
         !self.busy && now >= self.cooldown_until
     }
