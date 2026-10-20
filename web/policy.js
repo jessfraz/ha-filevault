@@ -11,10 +11,6 @@ export function presentation(report) {
   let statusState = state ?? "unknown";
   if (state === "running" && report?.runtime_check === "verified") {
     explanation = "Your Mac responded now at its Tailscale address with its verified server identity. No login password was used.";
-  } else if (state === "ssh_reachable" && ["unavailable", "timed_out"].includes(report?.runtime_check)) {
-    label = "Locked";
-    explanation = "The Mac's LAN SSH is reachable and Tailscale is offline. Connect with SSH to unlock it and watch startup progress below.";
-    statusState = "verified_preboot";
   } else if (state === "unknown") {
     if (["unavailable", "stale", "timed_out"].includes(report?.runtime_check)) {
       label = "Unavailable";

@@ -53,6 +53,7 @@ globalThis.document = {hidden: false, documentElement: {dataset: {}},
   getElementById: element, addEventListener: visibility.addEventListener.bind(visibility)};
 globalThis.window = {addEventListener: windowEvents.addEventListener.bind(windowEvents)};
 let state = "unknown";
+let runtimeCheck = null;
 const connection = {host:"mac.example.invalid",port:22,username:"fixture-user",tailscale_host:"100.64.0.2"};
 let trust = "trusted";
 let failStatus = false;
@@ -93,7 +94,7 @@ globalThis.fetch = async (path, options) => {
   if (path === "v1/status") {
     if (failStatus) throw new Error("Synthetic unavailable status");
     return {ok: true, json: async () => ({decision: {state, unlock_available: true},
-      transport_ready: true, manual_ready: true, connection, configuration_errors: [], configuration_notes:[]})};
+      runtime_check: runtimeCheck, transport_ready: true, manual_ready: true, connection, configuration_errors: [], configuration_notes:[]})};
   }
   if (path === "v1/session" || path === "v1/manual/session") {
     if (sessionError) return {ok:false,status:sessionError.status,json:async()=>({error_code:sessionError.code})};
@@ -337,6 +338,23 @@ historyRuns=[];
 await element("refresh").fire("click");
 assert.equal(element("connection-checks").parentElement,element("checks-top"));
 assert.match(element("connectivity-status").textContent,/No saved/);
+
+// Tailscale can remain offline after FileVault unlock while desktop login is
+// pending. LAN SSH stays usable without claiming the Mac is locked.
+state = "ssh_reachable";
+for (runtimeCheck of ["unavailable", "timed_out"]) {
+  await element("refresh").fire("click");
+  assert.equal(element("state").textContent,"SSH online");
+  assert.equal(element("status-card").dataset.state,"ssh_reachable");
+  assert.equal(element("unlock").hidden,true);
+  assert.equal(element("manual-ssh").hidden,false);
+  assert.equal(element("manual-ssh").disabled,false);
+  await element("manual-ssh").fire("click");
+  assert.equal(element("recovery").open,true);
+  await element("cancel-recovery").fire("click");
+}
+runtimeCheck = null;
+assert.equal(attempts,5);
 
 state = "running";
 await element("refresh").fire("click");

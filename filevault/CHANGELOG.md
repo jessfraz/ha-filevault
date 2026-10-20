@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.9
+
+- Show SSH online when LAN SSH is reachable and Tailscale is offline. Only
+  verified FileVault preboot evidence displays Locked; manual SSH stays available.
+
 ## 0.1.0-alpha.8
 
 - Show Locked when trusted LAN SSH is reachable and Tailscale is offline.
