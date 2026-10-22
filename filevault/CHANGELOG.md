@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.0-alpha.10
+
+- Reject distrusted emSign certificate paths with refreshed trust roots and
+  certificate verification.
+
 ## 0.1.0-alpha.9
 
 - Show SSH online when LAN SSH is reachable and Tailscale is offline. Only
