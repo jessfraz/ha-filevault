@@ -1271,6 +1271,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ha-filevault"
+version = "0.1.0-alpha.10"
+dependencies = [
+ "clap",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "zeroize",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

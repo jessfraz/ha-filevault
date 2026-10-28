@@ -9,10 +9,11 @@ import tomllib
 
 root = Path(__file__).resolve().parents[1]
 version = tomllib.loads((root / "Cargo.toml").read_text())["package"]["version"]
+cli = tomllib.loads((root / "cli/Cargo.toml").read_text())["package"]["version"]
 adapter = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
 manifest = json.loads((root / "custom_components/filevault/manifest.json").read_text())["version"]
 app = re.search(r'^version: "([^"]+)"$', (root / "filevault/config.yaml").read_text(), re.M).group(1)
-if len({version, adapter, manifest, app}) != 1:
+if len({version, cli, adapter, manifest, app}) != 1:
     raise SystemExit("Version mismatch")
 if len(sys.argv) > 1 and (version == "0.0.0" or sys.argv[1] != "v" + version):
     raise SystemExit("Unreleased scaffold or mismatched tag")
