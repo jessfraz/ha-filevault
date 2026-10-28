@@ -26,6 +26,29 @@ configuration is required for manual login.
 This remains an experimental prerelease tested with synthetic SSH peers.
 Actual Mac recovery and the deployed HTTP/proxy path need supervised validation.
 
+## Native CLI boundary
+
+The independent `ha-filevault` client has only fixed GET routes for external
+`/v1/system` and `/v1/status`. It sends a separately configured native
+integration credential, never an HA user identity, ingress origin, cookie,
+nonce, or password. It cannot access owner ingress or perform connection checks,
+identity confirmation, grants, recovery, or unlock. No server guard is relaxed.
+
+Credentials come only from an explicitly selected owner-only regular token
+file. The CLI has no token-value argument, automatic credential discovery, or
+server environment fallback. Credential-file buffers are zeroized best-effort;
+HTTP library/header copies cannot be guaranteed erased. HTTPS verifies normal
+certificates. HTTP requires an already trusted network, with no implicit network
+or host mapping grants. Ambient HTTP proxies are disabled.
+
+Every call makes one request with redirects and retries disabled. Fixed stderr
+errors never include URLs, file paths, argument values, tokens, response bodies,
+redirect locations, or library exception details. JSON stdout preserves the
+complete typed integration response, including version and configuration
+messages. Owner connection details fail closed. No role-probing request
+precedes status. The system command requires the integration role, and neither
+command supplies the trusted peer/user metadata required by ingress.
+
 ## Manual SSH identity and intent
 
 The SSH handshake verifies the server's key-exchange signature and retains the

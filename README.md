@@ -277,6 +277,73 @@ restart or power-cycle action. Missing status never proves locked; Running does
 not prove desktop or application health. Debounce resets on automation reload;
 cooldown uses HA's `last_triggered` state.
 
+## Native read-only CLI
+
+`ha-filevault` is a separate Rust client, not the `filevault` server. It reads
+only the external integration API, never HA ingress. Build or run it with Nix:
+
+```sh
+nix build .#ha-filevault
+nix run .#ha-filevault -- --help
+# The default package and app are also ha-filevault:
+nix run . -- --version
+```
+
+Provision a dedicated client-side file containing the read-only integration
+service token through the existing secret-management workflow. It must be an
+owner-only regular file (mode 0600 or 0400), containing 32–256 ASCII graphic
+characters with an optional final LF or CRLF. This is a raw token, not the app's
+JSON credential file, an HA access token, an owner credential, or a Mac password.
+The CLI does not discover, create, rotate, or save credentials.
+
+```sh
+export HA_FILEVAULT_URL=https://filevault.example.invalid
+export HA_FILEVAULT_TOKEN_FILE="$HOME/.config/ha-filevault/integration-token"
+ha-filevault system
+ha-filevault status
+# Equivalent explicit native configuration:
+ha-filevault --url https://filevault.example.invalid \
+  --token-file "$HOME/.config/ha-filevault/integration-token" status
+```
+
+Use the origin of an already configured external API listener, without a path,
+query, fragment, or URL credentials. No listener, host-port mapping, proxy,
+network grant, or deployment is added. HTTPS uses normal certificate validation;
+HTTP is supported only for an already trusted network because the service token
+would otherwise travel in cleartext. Ambient HTTP proxies are not used.
+`HA_FILEVAULT_*` settings are distinct from the server's `FILEVAULT_*` settings.
+No token-value command-line option or server-configuration fallback exists.
+
+| Command | One authenticated request | Output |
+| --- | --- | --- |
+| `system` | `GET /v1/system` | Complete typed integration system response |
+| `status` | `GET /v1/status` | Complete typed integration status response |
+
+Each invocation sends one bearer-authenticated GET, with no preflight, redirect,
+retry, ingress headers, cookies, or request body. `system` requires the response's
+`integration` credential role. `status` calls the existing fresh-observation
+endpoint, which can perform the server's normal password-free SSH handshake;
+read-only does not mean a cached-only observation. Running is not desktop or
+application-health proof, and an unavailable observation does not prove lock.
+
+Success emits the complete typed integration API response as one JSON object
+on stdout, preserving the server's version, configuration errors/notes, decision
+and capability fields without inferring new business decisions. Integration
+connection data remains `null`, as required by the existing server boundary;
+owner connection details and unrecognized status enums cause a safe failure.
+Errors preserve HTTP status with fixed stderr diagnostics and nonzero exit status
+(2 for invalid arguments, 1 for runtime/configuration failure). The request has
+a 15-second timeout and a 64-KiB response limit. Help and version are offline and
+do not display configured values.
+
+There are deliberately no unlock, manual connection check, connection history,
+recovery activity, identity/trust, session, password, owner, arbitrary-path, or
+mutation commands. The server and its ingress guards are unchanged.
+
+For development, run `nix develop -c cargo run -p ha-filevault -- --help` and
+`nix develop -c cargo test --locked -p ha-filevault`. The root Cargo default
+member remains the server: `cargo run -- ...` still runs `filevault`.
+
 ## Development and release
 
 Use Rust stable, Node.js, Python 3.14, uv, and just. `nix develop` supplies the

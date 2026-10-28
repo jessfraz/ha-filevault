@@ -1,6 +1,7 @@
 FROM rust:1.99.0-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
+COPY cli ./cli
 COPY src ./src
 COPY migrations ./migrations
 COPY web ./web

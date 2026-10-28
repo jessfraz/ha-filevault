@@ -5,6 +5,11 @@ edition = "2024"
 license = "MIT"
 description = "FileVault recovery status for Home Assistant"
 
+[workspace]
+members = ["cli"]
+default-members = ["."]
+resolver = "3"
+
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
