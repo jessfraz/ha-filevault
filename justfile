@@ -10,8 +10,9 @@ versions:
 
 rust:
     cargo fmt --check
+    cargo fmt --check --manifest-path cli/Cargo.toml
     cargo clippy --locked --all --benches --tests --examples --all-features -- -D warnings
-    cargo test --locked --all-features
+    cargo test --locked --workspace --all-features
 
 ha:
     uv sync --frozen

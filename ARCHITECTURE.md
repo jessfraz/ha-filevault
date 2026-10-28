@@ -96,6 +96,19 @@ Fetch Metadata, secure cookie, random nonce, action, expiry, and bounded body.
 Input-bearing request logging is discarded. The loopback browser fixture uses
 synthetic SSH keys and only DUMMY_SENTINEL; it is not deployment validation.
 
+## Native client
+
+`cli/` is an independent Rust workspace package, `ha-filevault`, using only
+fixed external read routes and client-owned `HA_FILEVAULT_*` configuration.
+It neither links the server library nor supplies ingress authority. Its owned
+consumer DTOs preserve all integration response fields; the server's borrowed
+static-string DTOs cannot deserialize client data. Connection remains null,
+never an ingress connection summary.
+The root default Cargo member remains `filevault`; existing server invocation,
+container build and ingress semantics are unchanged. Workspace checks include
+the CLI's real-process loopback HTTP tests. The flake's named/default package
+and app build only the CLI on the already supported Nix platforms.
+
 ## Distribution
 
 Native amd64/arm64 app images use /data, initial ownership setup then UID 10001,
