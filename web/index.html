@@ -17,7 +17,6 @@
         <img class="brand-dark" src="brand-dark.svg" width="30" height="30" alt="">
         FileVault
       </a>
-      <div class="header-actions"><button id="theme" type="button" class="quiet">Theme: Auto</button><span class="build-tag">Experimental</span></div>
     </header>
     <main class="recovery-layout">
       <div class="page-heading">
@@ -27,12 +26,16 @@
       <p id="notice" class="notice" role="status" aria-live="polite"></p>
       <p id="configuration" class="notice configuration" role="status" hidden></p>
       <p id="recovery-availability" class="notice configuration" role="status" hidden></p>
-      <section id="ssh-activity" class="activity-card" aria-labelledby="ssh-activity-title" hidden>
-        <div class="activity-heading"><h3 id="ssh-activity-title">SSH activity</h3><span id="activity-state" class="eyebrow"></span></div>
+      <div id="activity-top">
+      <details id="ssh-activity" class="activity-card diagnostic-card" aria-labelledby="ssh-activity-title" open hidden>
+        <summary id="ssh-activity-title">SSH activity <span id="activity-state" class="eyebrow"></span></summary>
+        <div class="diagnostic-content">
         <p id="activity-summary" role="status" aria-live="polite"></p>
         <ol id="activity-log" class="activity-log" aria-label="SSH diagnostics"></ol>
         <p class="field-help">Live SSH and startup diagnostics. Passwords and raw server output are never recorded.</p>
-      </section>
+        </div>
+      </details>
+      </div>
       <section class="profile-summary" aria-labelledby="connection-title">
         <div><p class="eyebrow">ONE MAC CONNECTION</p><h3 id="connection-title">Shared connection</h3>
           <p class="field-help">Edit this profile once in FileVault app settings. Manual login and automatic checks use it.</p></div>
@@ -41,8 +44,10 @@
       </section>
       <p id="setup-note" class="field-help" hidden></p>
       <div id="checks-top">
-      <section id="connection-checks" class="connectivity-card" aria-labelledby="connectivity-title">
-        <div class="connectivity-heading"><div><h3 id="connectivity-title">Connection checks</h3>
+      <details id="connection-checks" class="connectivity-card diagnostic-card" aria-labelledby="connectivity-title" open>
+        <summary id="connectivity-title">Connection checks</summary>
+        <div class="diagnostic-content">
+        <div class="connectivity-heading"><div>
           <p class="field-help">Check both addresses from FileVault before signing in. These checks do not unlock the Mac or remember a server identity.</p></div>
           <button id="check-connections" class="quiet" type="button" disabled>Check connections</button></div>
         <p id="connectivity-status" class="field-help" role="status" aria-live="polite">No connection check yet.</p>
@@ -56,7 +61,8 @@
           <ol id="history-list"></ol>
           <button id="history-more" class="quiet" type="button" hidden>Earlier checks</button>
         </details>
-      </section>
+        </div>
+      </details>
       </div>
       <section id="status-card" class="recovery-card" aria-labelledby="status-title" data-state="unknown">
         <div class="status-art" aria-hidden="true"><img class="brand-light" src="brand.svg" width="108" height="108" alt=""><img class="brand-dark" src="brand-dark.svg" width="108" height="108" alt=""></div>
@@ -68,12 +74,17 @@
         </div>
         <div class="connection-bar"><span class="connection-dot" aria-hidden="true"></span><span id="service-status">Connecting</span><span id="last-checked" class="last-checked">No recent observation</span></div>
       </section>
-      <section class="manual-card" aria-labelledby="manual-title">
-        <div><p class="eyebrow">YOU'RE IN CONTROL</p><h3 id="manual-title">Manual SSH unlock</h3>
+      <div id="manual-top">
+      <details id="manual-unlock" class="manual-card diagnostic-card" aria-labelledby="manual-title" open>
+        <summary id="manual-title">Manual SSH unlock</summary>
+        <div class="manual-content diagnostic-content">
+        <div><p class="eyebrow">YOU'RE IN CONTROL</p>
           <p class="muted">Send one password login to your trusted Mac, even when automatic status is unknown or running. You confirm the target first.</p>
           <p id="manual-availability" class="field-help">Set the shared Mac connection in app settings. Enter a password only when connecting.</p></div>
         <button id="manual-ssh" type="button" hidden disabled>Connect with SSH</button>
-      </section>
+        </div>
+      </details>
+      </div>
       <div class="recovery-notes">
         <section class="recovery-note" aria-labelledby="availability-title">
           <span class="note-number" aria-hidden="true">01</span>
@@ -86,7 +97,7 @@
           <p class="muted">Designed for one attempt, without saving a password or writing it to Home Assistant history.</p>
         </section>
       </div>
-      <div id="checks-bottom"></div>
+      <div id="diagnostics-bottom" aria-label="Recovery tools and diagnostics"></div>
     </main>
     <dialog id="recovery" aria-labelledby="recovery-title">
       <form id="recovery-form" autocomplete="off">

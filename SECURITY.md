@@ -23,8 +23,9 @@ identity through normal first-connection confirmation, then enter a password
 for one explicit attempt. No client-key authentication or copied phase-key
 configuration is required for manual login.
 
-This remains an experimental prerelease tested with synthetic SSH peers.
-Actual Mac recovery and the deployed HTTP/proxy path need supervised validation.
+Manual SSH recovery has been validated through repeated supervised Mac unlocks,
+in addition to synthetic SSH tests. New Mac and HTTP/proxy deployments still
+need supervised validation; this does not establish universal compatibility.
 
 ## Manual SSH identity and intent
 

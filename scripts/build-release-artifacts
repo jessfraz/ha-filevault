@@ -86,8 +86,8 @@ provenance.write_text(
             "version": version,
             "commit": commit,
             "status": (
-                "experimental; manual server identity verification required; "
-                "hardware not validated"
+                "manual server identity verification required; "
+                "compatibility depends on the Mac and deployed network path"
             ),
         },
         indent=2,
