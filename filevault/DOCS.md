@@ -38,11 +38,13 @@ endpoint settings, up to 1,000 runs for 30 days. It contains no credentials,
 target addresses, host keys, resolver configuration, or raw errors. Include
 managed app data in the normal Home Assistant backup.
 
-Checks stay above the main controls until all configured endpoints pass DNS,
-TCP, and trusted SSH identity checks. Successful checks move below the controls
-for 30 seconds; stale results return to the top. You can rerun them in either
-position. History never supplies current Running evidence. A browser that
-stops waiting does not cancel an accepted check; its bounded result is saved.
+While the Mac is currently confirmed Running, SSH activity, connection checks,
+and manual SSH unlock appear below the main controls as click-to-expand
+sections. Active recovery and current failures remain prominent. When Running
+is no longer confirmed, the sections expand in their usual positions. Checks
+continue while collapsed, and saved history never establishes Running. A
+browser that stops waiting does not cancel an accepted check; its bounded
+result is saved.
 
 Click outside the password dialog or press Escape to dismiss an unsubmitted
 attempt. The unsent password clears and focus returns to the opening control.
@@ -81,7 +83,8 @@ Trusted LAN SSH together with offline Tailscale shows Locked and offers SSH
 unlock. Without the LAN response, status remains unavailable. Name resolution,
 timeout, and identity setup have separate guidance.
 Verify this app container's route before claiming deployed live detection.
-Actual power-loss and FileVault cold-boot behavior remain unvalidated.
+Repeated supervised Mac unlocks have validated manual SSH recovery. Power-loss
+behavior and compatibility with new deployments still need separate validation.
 
 Advanced FileVault preboot suggestions use optional separately verified phase
 identities in automatic. They contain no host, port, or username. Missing
