@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0
+
+- Promote FileVault from experimental after repeated supervised Mac unlocks.
+- Tuck completed SSH activity, connection checks, and manual SSH unlock into
+  expandable sections while the Mac is confirmed Running. Expand recovery
+  tools again when status is unavailable or an operation needs attention.
+- Follow the automatic system theme, matching Shipments and Maintenance.
+
 ## 0.1.0-alpha.10
 
 - Reject distrusted emSign certificate paths with refreshed trust roots and

@@ -117,6 +117,9 @@ globalThis.fetch = async (path, options) => {
   return {ok: true, json: async () => ({outcome: path === "v1/unlock" ? "booting" : "authenticated"})};
 };
 await import("../web/app.js");
+assert.equal(element("manual-unlock").parentElement,element("manual-top"));
+assert.equal(element("manual-unlock").open,true);
+assert.equal(element("connection-checks").open,true);
 assert.equal(element("unlock").hidden, true);
 assert.equal(element("manual-ssh").hidden, false);
 assert.equal(element("shared-target").textContent,"fixture-user@mac.example.invalid:22");
@@ -151,10 +154,14 @@ assert.match(element("notice").textContent,/cooldown is over/);
 assert.equal(element("manual-ssh").disabled,false);
 assert.equal(attempts,0);
 
+element("ssh-activity").open=false;
+element("manual-unlock").open=false;
 sessionError={status:502,code:"ssh_unavailable"};
 recoveryReport={busy:false,retry_after_ms:0,activity:null};
 await element("manual-ssh").fire("click");
 assert.match(element("notice").textContent,/Could not connect.*SSH server/);
+assert.equal(element("ssh-activity").open,true);
+assert.equal(element("manual-unlock").open,true);
 assert.doesNotMatch(element("notice").textContent,/cooldown/);
 assert.equal(element("manual-ssh").disabled,false);
 sessionError=null;
@@ -307,6 +314,40 @@ await tick(250);
 assert.equal(element("manual-ssh").disabled,false);
 recoveryReport={...recoveryReport,retry_after_ms:0};
 
+// Running tucks away completed recovery and stale checks, without discarding them.
+for (const id of ["ssh-activity", "connection-checks", "manual-unlock"]) {
+  assert.equal(element(id).parentElement,element("diagnostics-bottom"));
+  assert.equal(element(id).open,false);
+}
+element("ssh-activity").open=true;
+element("manual-unlock").open=true;
+await element("refresh").fire("click");
+assert.equal(element("ssh-activity").open,true);
+assert.equal(element("manual-unlock").open,true);
+assert.equal(element("activity-log").children.length,3);
+
+// Current endpoint failures stay visible even with a verified runtime response.
+const savedFailure=historyRuns[0];
+const freshTime=Math.floor(Date.now()/1000);
+historyRuns=[{...savedFailure,started_at:freshTime,finished_at:freshTime}];
+await element("refresh").fire("click");
+assert.equal(element("state").textContent,"Running");
+assert.equal(element("connection-checks").parentElement,element("checks-top"));
+assert.equal(element("connection-checks").open,true);
+historyRuns=[];
+await element("refresh").fire("click");
+assert.equal(element("connection-checks").parentElement,element("diagnostics-bottom"));
+assert.equal(element("connection-checks").open,false);
+
+// Losing Running expands the tools; a later fresh Running observation quiets them.
+for (state of ["unknown", "running", "verified_preboot", "running"]) {
+  await element("refresh").fire("click");
+  for (const id of ["ssh-activity", "connection-checks", "manual-unlock"]) {
+    assert.equal(element(id).open,state!=="running");
+  }
+}
+
+
 // A recovered in-flight trace can disappear after an app restart. Stop polling
 // the stale activity and clearly retain an unconfirmed result without retrying.
 recoveryReport={busy:true,retry_after_ms:0,activity:{active:true,outcome:null,events:[
@@ -314,6 +355,9 @@ recoveryReport={busy:true,retry_after_ms:0,activity:{active:true,outcome:null,ev
 ]}};
 await element("refresh").fire("click");
 assert.equal(element("manual-ssh").disabled,true);
+assert.equal(element("ssh-activity").parentElement,element("activity-top"));
+assert.equal(element("ssh-activity").open,true);
+assert.equal(element("manual-unlock").open,true);
 recoveryReport={busy:false,retry_after_ms:0,activity:null};
 await tick(1_000);
 assert.match(element("activity-summary").textContent,/no longer available.*unconfirmed/);
@@ -327,7 +371,7 @@ state="unknown";
 const now=Math.floor(Date.now()/1000);
 historyRuns=[{sequence:100,started_at:now,finished_at:now,state:"complete",lan:good,tailscale:good}];
 await element("refresh").fire("click");
-assert.equal(element("connection-checks").parentElement,element("checks-bottom"));
+assert.equal(element("connection-checks").parentElement,element("checks-top"));
 assert.equal(element("state").textContent,"Unknown");
 assert.equal(attempts,5);
 historyRuns=[{...historyRuns[0],started_at:now-60,finished_at:now-31}];
@@ -360,11 +404,18 @@ state = "running";
 await element("refresh").fire("click");
 assert.equal(element("unlock").hidden, true);
 assert.equal(element("manual-ssh").hidden, false);
+// A new Running observation supersedes the old unconfirmed activity, not its log.
+assert.equal(element("ssh-activity").parentElement,element("diagnostics-bottom"));
+assert.equal(element("manual-unlock").parentElement,element("diagnostics-bottom"));
+assert.equal(element("ssh-activity").open,false);
 failStatus = true;
 trust = "trusted";
 await element("refresh").fire("click");
 assert.equal(element("manual-ssh").hidden, false);
 assert.equal(element("configuration").hidden, true);
+assert.equal(element("connection-checks").parentElement,element("checks-top"));
+assert.equal(element("connection-checks").open,true);
+assert.equal(element("manual-unlock").open,true);
 assert.match(element("setup-note").textContent, /has not been learned/);
 await element("manual-ssh").fire("click");
 assert.equal(element("recovery").open, true);
@@ -392,8 +443,4 @@ await opening;
 assert.equal(element("recovery").open, false);
 assert.equal(element("password").value, "");
 assert.equal(attempts, 5);
-await element("theme").fire("click");
-assert.equal(document.documentElement.dataset.theme, "light");
-await element("theme").fire("click");
-assert.equal(document.documentElement.dataset.theme, "dark");
 console.log("Manual override, separate identity trust, field clearing, status failure and UI race checks passed");

@@ -6,7 +6,7 @@ Tailscale running check and optional boot-phase suggestions. It follows
 [Shipments](https://github.com/jessfraz/ha-packages): Rust/Dropshot, an embedded
 light/dark UI, HA ingress, and a read-only Python integration.
 
-**Experimental prerelease. Real Mac recovery has not been validated.**
+Manual SSH recovery has been validated through repeated supervised Mac unlocks.
 The manual feature uses host, port, username, and a password entered for one
 attempt. It does not require client-key authentication or copied phase keys.
 It does not open an interactive terminal.
@@ -85,11 +85,12 @@ configuration, or raw diagnostics. Interrupted runs remain interrupted after
 restart. An accepted check finishes and saves its bounded result if the browser
 stops waiting; it never authenticates or retries a login.
 
-Following Shipments' installation section, Connection checks move below the
-main controls only while all configured endpoints have recognized SSH
-identities and successful DNS/TCP checks less than 30 seconds old. Failed,
-unknown, stale, and never-run checks stay prominent. Saved history is labeled
-historical and never supplies the observation that reports Running.
+While the Mac is currently confirmed Running, SSH activity, connection checks,
+and manual SSH unlock sit below the main controls as click-to-expand sections,
+following Shipments' installation section. Active recovery and current failures
+stay expanded and prominent. When Running is no longer confirmed, the tools
+expand in their usual positions, even if saved connection checks passed. Saved
+history never establishes Running. Checks continue while sections are collapsed.
 
 When a MagicDNS name fails here, inspect DNS forwarding from the app network
 namespace. A successful lookup from a different HA app does not establish the
@@ -155,7 +156,7 @@ boot phase. A normal-runtime observation never fabricates preboot enrollment.
 Apple supports FileVault SSH unlock on Apple silicon with macOS 26 or later,
 Remote Login enabled, and networking:
 [Apple documentation](https://support.apple.com/guide/security/managing-filevault-sec8447f5049/web).
-This does not establish compatibility of this prerelease with a particular Mac.
+Compatibility still depends on the Mac, macOS version, and deployed network path.
 
 ## Upgrade from alpha.1 or alpha.2
 
@@ -183,7 +184,7 @@ See [app instructions](filevault/DOCS.md) for verification.
 ## Home Assistant app and pairing
 
 Add `https://github.com/jessfraz/ha-filevault` to the HA app-store repositories.
-Review the exact prerelease, image digest, permissions, and target before
+Review the exact version, image digest, permissions, and target before
 installing or updating. The app image is
 `ghcr.io/jessfraz/ha-filevault:<version>`, native amd64 and arm64.
 

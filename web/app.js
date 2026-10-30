@@ -17,7 +17,8 @@ let preparation = null;
 let mode = null;
 let refreshAbort = null;
 let epoch = 0;
-let theme = "auto";
+let macRunning = false;
+let recoveryNeedsAttention = false;
 let hostTrusted = false;
 let sharedConnection = null;
 let checkAbort = null;
@@ -103,6 +104,7 @@ function renderActivity() {
   byId("ssh-activity").ariaBusy = String(active);
   byId("activity-state").textContent = active ? "In progress" : activity?.outcome === "running" ? "Running" : "Complete";
   byId("activity-summary").textContent = summary;
+  placeDiagnostics();
   byId("dialog-activity").hidden = !pending;
   if (pending) byId("recovery-status").textContent = summary;
   const events = activity?.events ?? [];
@@ -156,6 +158,10 @@ async function loadRecovery() {
       byId("notice").textContent = localStage;
       await refresh();
     } else if (next) {
+      if (next.active && !activity?.active) {
+        byId("ssh-activity").open = true;
+        byId("manual-unlock").open = true;
+      }
       activity = next;
       if (next.active) localStage = null;
     }
@@ -191,20 +197,37 @@ async function connectionFailure(response) {
 function sameConnection(a, b) {
   return a && b && a.host === b.host && a.port === b.port && a.tailscale_host === b.tailscale_host;
 }
+function placeDiagnostic(id, top, discreet) {
+  const card = byId(id);
+  const parent = byId(discreet ? "diagnostics-bottom" : top);
+  const focused = document.activeElement;
+  const restore = focused && card.contains(focused);
+  if (card.parentElement !== parent) {
+    parent.append(card);
+    if (restore) focused.focus({preventScroll:true});
+  }
+  // Only change disclosure state on a transition, preserving the user's choice
+  // across refreshes and keeping a focused control accessible after a move.
+  if (card.dataset.discreet !== String(discreet)) {
+    card.open = !discreet || !!restore;
+    card.dataset.discreet = String(discreet);
+  }
+}
+function placeDiagnostics() {
+  const recoveryAttention = pending || !!preparation || dialog.open || recoveryBusy
+    || activity?.active === true || recoveryNeedsAttention;
+  placeDiagnostic("ssh-activity", "activity-top", macRunning && !recoveryAttention);
+  placeDiagnostic("manual-unlock", "manual-top", macRunning && !recoveryAttention);
+  placeChecks();
+}
 function placeChecks() {
   clearTimeout(freshnessTimer);
   const passed = !checkAbort && !checkFailed && connectionChecksPassed(lastRun, sharedConnection);
-  const card = byId("connection-checks");
-  const parent = byId(passed ? "checks-bottom" : "checks-top");
-  if (card.parentElement !== parent) {
-    const focused = document.activeElement;
-    const restore = focused && card.contains(focused);
-    parent.insertBefore(card, null);
-    if (restore) focused.focus({preventScroll:true});
-  }
-  card.dataset.checks = passed ? "passed" : "attention";
-  if (!checkFailed && lastRun?.finished_at) {
-    const age = Date.now() / 1000 - lastRun.finished_at;
+  const age = lastRun?.finished_at ? Date.now() / 1000 - lastRun.finished_at : null;
+  const freshFailure = !checkAbort && age !== null && age >= 0 && age < CHECK_FRESHNESS_SECONDS && !passed;
+  placeDiagnostic("connection-checks", "checks-top", macRunning && !checkFailed && !freshFailure);
+  byId("connection-checks").dataset.checks = passed ? "passed" : "attention";
+  if (!checkFailed && age !== null) {
     if (age >= CHECK_FRESHNESS_SECONDS || age < 0) {
       byId("connectivity-status").textContent = `Saved check from ${dateLabel(lastRun.finished_at)} is stale. Check again for current connection results. Saved results do not establish Running.`;
     } else {
@@ -405,6 +428,7 @@ async function checkConnections() {
   } catch {
     if (checkAbort === abort) {
       checkFailed = true;
+      byId("connection-checks").open = true;
       byId("connectivity-status").textContent = "Connection check unavailable. An accepted check may still finish and save its result. No login was attempted. Check again explicitly.";
     }
   } finally {
@@ -440,12 +464,16 @@ function clearGrant() {
       ((!opener.hidden && !opener.disabled) ? opener : byId("refresh")).focus();
     }
   }
+  placeDiagnostics();
 }
 function render(report) {
   const view = presentation(report);
   byId("state").textContent = view.label;
   byId("explanation").textContent = view.explanation;
   byId("status-card").dataset.state = view.statusState;
+  macRunning = view.statusState === "running";
+  if (macRunning) recoveryNeedsAttention = false;
+  placeDiagnostics();
   canUnlock = view.canUnlock;
   if (typeof report?.manual_ready === "boolean") canManual = report.manual_ready;
   if (report) configuration(report);
@@ -516,6 +544,9 @@ async function prepare(selectedMode) {
   dialogOpener = selectedMode === "manual" ? manual : unlock;
   const abort = new AbortController();
   preparation = abort;
+  recoveryNeedsAttention = true;
+  byId("ssh-activity").open = true;
+  byId("manual-unlock").open = true;
   mode = selectedMode;
   cooldownEnded = false;
   renderAvailability();
@@ -681,6 +712,7 @@ function dismissRecovery() {
     byId("recovery-status").textContent = "The submitted operation is in progress. Wait for its result; no retry will be made.";
     return;
   }
+  recoveryNeedsAttention = false;
   clearGrant();
 }
 function outsideDialog(event) {
@@ -708,10 +740,5 @@ window.addEventListener("pagehide", suspend);
 document.addEventListener("visibilitychange", async () => {
   if (document.hidden) suspend();
   else { renderAvailability(); await Promise.allSettled([loadRecovery(), refresh()]); }
-});
-byId("theme").addEventListener("click", () => {
-  theme = theme === "auto" ? "light" : theme === "light" ? "dark" : "auto";
-  document.documentElement.dataset.theme = theme;
-  byId("theme").textContent = `Theme: ${theme === "auto" ? "Auto" : theme === "light" ? "Light" : "Dark"}`;
 });
 await Promise.allSettled([loadRecovery(), refresh()]);
