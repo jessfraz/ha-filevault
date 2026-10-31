@@ -245,7 +245,7 @@ async fn serve(
             200,
             format!("Set-Cookie: fv_session={GRANT}; Secure; HttpOnly\r\n"),
             format!(
-                r#"{{"nonce":"{NONCE}","target":{{"host":"mac.example.invalid","port":22,"username":"user","host_key_fingerprint":"SHA256:dummy","trusted":{}}}}}"#,
+                r#"{{"nonce":"{NONCE}","target":{{"host":"mac.example.invalid","port":22,"username":"DUMMY_PRIVATE_SSH_ACCOUNT","host_key_fingerprint":"SHA256:dummy","trusted":{}}}}}"#,
                 !matches!(mode, Mode::Untrusted)
             ),
         ),
@@ -366,4 +366,13 @@ fn waits_for_ssh_startup_before_prompting_or_sending_a_password() {
         1
     );
     assert!(!String::from_utf8_lossy(&output.stderr).contains("DUMMY_SENSITIVE_BODY"));
+}
+
+#[test]
+fn routine_unlock_output_does_not_disclose_the_configured_ssh_account() {
+    let fixture = Fixture::new(Mode::Unlock);
+    let output = fixture.invoke(format!("{PASSWORD}\n").as_bytes());
+    assert!(output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("DUMMY_PRIVATE_SSH_ACCOUNT"));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("DUMMY_PRIVATE_SSH_ACCOUNT"));
 }

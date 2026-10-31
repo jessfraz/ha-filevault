@@ -40,7 +40,6 @@ struct Recovery {
 struct Target {
     host: String,
     port: u16,
-    username: String,
     host_key_fingerprint: String,
     trusted: bool,
 }
@@ -196,18 +195,13 @@ fn password(stdin: bool) -> Result<Zeroizing<Vec<u8>>, &'static str> {
 fn confirm_target(target: &Target, stdin: bool) -> Result<bool, &'static str> {
     if target.port == 0
         || !safe_label(&target.host)
-        || !safe_label(&target.username)
         || !safe_label(&target.host_key_fingerprint)
         || !target.host_key_fingerprint.starts_with("SHA256:")
     {
         return Err("invalid FileVault SSH identity");
     }
-    eprintln!(
-        "Target: {}@{}:{}",
-        target.username, target.host, target.port
-    );
-    eprintln!("SSH fingerprint: {}", target.host_key_fingerprint);
     if target.trusted {
+        eprintln!("SSH identity verified.");
         return Ok(false);
     }
     if stdin || !std::io::stdin().is_terminal() {
@@ -215,6 +209,8 @@ fn confirm_target(target: &Target, stdin: bool) -> Result<bool, &'static str> {
             "SSH identity needs approval; verify its fingerprint in the FileVault app first",
         );
     }
+    eprintln!("Target: {}:{}", target.host, target.port);
+    eprintln!("SSH fingerprint: {}", target.host_key_fingerprint);
     eprint!("Verify this fingerprint independently. Trust this server? [y/N] ");
     std::io::stderr()
         .flush()

@@ -65,8 +65,9 @@ headers. This header is an anti-CSRF signal, not authentication. Native and
 browser grants cannot cross channels. User, cookie, nonce, expiry, SSH identity,
 explicit intent, global concurrency, and cooldown checks still apply.
 
-The CLI displays the SSH target and fingerprint before hidden password entry.
-New identities require interactive confirmation; `--password-stdin` requires
+Routine CLI progress contains fixed messages, without the configured account
+name or host. New identities display the host and fingerprint only for
+interactive confirmation; `--password-stdin` requires
 existing trust. Automation may supply one password line from a secret-manager
 child process, never from arguments, environment, files, or an agent transcript.
 HA sessions, grant cookies, nonces, and passwords are transient and never saved.

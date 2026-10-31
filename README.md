@@ -308,7 +308,7 @@ The read-only integration token cannot authorize this command.
 
 If the Mac is already running, the command verifies fresh normal-runtime
 evidence and exits without reading a password. Otherwise it waits for SSH
-startup, an existing recovery, or cooldown, shows the target and SSH fingerprint,
+startup, an existing recovery, or cooldown, verifies the SSH identity,
 and asks
 for the Mac login password with echo disabled. A new SSH identity requires
 explicit fingerprint confirmation; verify it independently before trusting it.
