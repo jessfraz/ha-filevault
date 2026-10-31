@@ -91,23 +91,35 @@ only that integration credential through authenticated Supervisor discovery.
 Core confirmation precedes token probing or storage. It cannot access the UI,
 trust, grant, or password routes.
 
-Ingress checks Supervisor peer, allowed user, exact HTTPS Origin, same-origin
-Fetch Metadata, secure cookie, random nonce, action, expiry, and bounded body.
+Ingress checks Supervisor peer and allowed user. Browser mutations additionally
+require exact HTTPS Origin and same-origin Fetch Metadata. Native mutations
+use a distinct client channel. Both require secure cookie, random nonce, action,
+expiry, and bounded body.
 Input-bearing request logging is discarded. The loopback browser fixture uses
 synthetic SSH keys and only DUMMY_SENTINEL; it is not deployment validation.
 
 ## Native client
 
-`cli/` is an independent Rust workspace package, `ha-filevault`, using only
-fixed external read routes and client-owned `HA_FILEVAULT_*` configuration.
-It neither links the server library nor supplies ingress authority. Its owned
-consumer DTOs preserve all integration response fields; the server's borrowed
-static-string DTOs cannot deserialize client data. Connection remains null,
-never an ingress connection summary.
-The root default Cargo member remains `filevault`; existing server invocation,
-container build and ingress semantics are unchanged. Workspace checks include
-the CLI's real-process loopback HTTP tests. The flake's named/default package
-and app build only the CLI on the already supported Nix platforms.
+`cli/` is an independent Rust workspace package, `ha-filevault`, without a
+server-library dependency. `system` and `status` use fixed external read routes
+and client-owned `HA_FILEVAULT_*` configuration. Their typed integration DTOs
+require null connection details and cannot acquire ingress authority.
+
+`unlock` uses normal HA WebSocket authentication and ingress-session creation
+with `HOME_ASSISTANT_*` configuration. HA binds the actual user identity; the
+CLI never invents Supervisor headers or browser origins. The three `/v1/cli/`
+routes share the existing SSH controller while binding grants to the native
+channel. Browser and native grants cannot be interchanged.
+
+The CLI waits for startup/cooldown before one bounded password submission, then
+requires a fresh status with verified normal-runtime evidence. Interactive
+password entry hides echo; explicit stdin input supports secret-manager child
+processes with existing SSH trust. Credentials and sessions are not persisted.
+
+The root default Cargo member remains `filevault`. Workspace checks include
+real CLI processes against WebSocket/HTTP fixtures and the native ingress API
+against real synthetic SSH peers. The flake's named/default package and app
+build only the CLI on the already supported Nix platforms.
 
 ## Distribution
 

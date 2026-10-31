@@ -29,26 +29,51 @@ need supervised validation; this does not establish universal compatibility.
 
 ## Native CLI boundary
 
-The independent `ha-filevault` client has only fixed GET routes for external
+The independent `ha-filevault` client keeps integration reads separate from
+HA-authenticated recovery. Its `system` and `status` commands use fixed GET
+routes for external
 `/v1/system` and `/v1/status`. It sends a separately configured native
 integration credential, never an HA user identity, ingress origin, cookie,
-nonce, or password. It cannot access owner ingress or perform connection checks,
-identity confirmation, grants, recovery, or unlock. No server guard is relaxed.
+nonce, or password. Those integration credentials cannot authorize recovery.
 
-Credentials come only from an explicitly selected owner-only regular token
+Integration credentials come only from an explicitly selected owner-only regular token
 file. The CLI has no token-value argument, automatic credential discovery, or
 server environment fallback. Credential-file buffers are zeroized best-effort;
 HTTP library/header copies cannot be guaranteed erased. HTTPS verifies normal
 certificates. HTTP requires an already trusted network, with no implicit network
 or host mapping grants. Ambient HTTP proxies are disabled.
 
-Every call makes one request with redirects and retries disabled. Fixed stderr
+Each integration read makes one request with redirects and retries disabled. Fixed stderr
 errors never include URLs, file paths, argument values, tokens, response bodies,
 redirect locations, or library exception details. JSON stdout preserves the
 complete typed integration response, including version and configuration
 messages. Owner connection details fail closed. No role-probing request
 precedes status. The system command requires the integration role, and neither
 command supplies the trusted peer/user metadata required by ingress.
+
+The `unlock` command instead uses `HOME_ASSISTANT_URL` and
+`HOME_ASSISTANT_TOKEN`. It authenticates through the normal HA WebSocket API,
+discovers the configured app, and requests an ingress session bound by HA to
+the actual administrator. The app still checks the trusted Supervisor peer and
+its allowed-user list. No caller-supplied HA identity is trusted. HTTPS is
+required except on loopback; normal certificate checks, no redirects, and no
+ambient proxies apply to this flow.
+
+Dedicated `/v1/cli/session`, `/v1/cli/trust`, and `/v1/cli/attempt` routes require
+`X-FileVault-Client: native-cli` and reject browser Origin and Fetch Metadata
+headers. This header is an anti-CSRF signal, not authentication. Native and
+browser grants cannot cross channels. User, cookie, nonce, expiry, SSH identity,
+explicit intent, global concurrency, and cooldown checks still apply.
+
+The CLI displays the SSH target and fingerprint before hidden password entry.
+New identities require interactive confirmation; `--password-stdin` requires
+existing trust. Automation may supply one password line from a secret-manager
+child process, never from arguments, environment, files, or an agent transcript.
+HA sessions, grant cookies, nonces, and passwords are transient and never saved.
+Preparation may wait for SSH startup, but password submission occurs once.
+Lost attempt responses lead only to observation, never resubmission. Exit 0
+requires fresh independent normal-runtime evidence, including for an already
+running Mac. This is not desktop-login or application-health evidence.
 
 ## Manual SSH identity and intent
 
@@ -68,8 +93,8 @@ on the retained connection must use that same selected identity. The manual
 path does not require an extra pre-authentication rekey or reconnect.
 
 The server binds the candidate connection to a random 60-second nonce, secure
-session cookie, allowed HA user, exact HTTPS origin, and manual/automatic
-action.
+session cookie, allowed HA user, client channel, and manual/automatic action.
+Browser grants additionally require the exact HTTPS origin.
 Trust confirmation checks the same binding before remembering a public identity.
 It does not authenticate an account. Password submission separately requires
 explicit manual intent and trusted identity, consumes the grant atomically,
@@ -83,9 +108,10 @@ unconfirmed. Neither result proves desktop login or required service health.
 
 ## Password boundary
 
-Only the user enters and submits the real password directly in the reviewed UI.
-Agents, chat, screenshots, DOM/request inspectors, and browser automation must
-never receive it. It must not enter options, files, commands, environment,
+Passwords enter only through the reviewed UI, the hidden CLI prompt, or the
+explicit stdin automation path described above. Never expose them to agent
+conversations, chat, screenshots, DOM/request inspectors, or browser automation.
+They must not enter options, files, command arguments, environment,
 headers, URLs, cookies, HA entities/services/events/automations, recorder,
 traces, history, notifications, or logs. No account-password configuration field
 exists. The similarly masked status_token option is a different read-only
@@ -114,8 +140,10 @@ include user-provided values.
 
 Require the trusted Supervisor peer and explicitly allowed user identity for
 all UI, trust, and password routes. Sidebar visibility alone is not authority.
-Require exact HTTPS Origin, same-origin Fetch Metadata, no query payload,
-bounded body size, nonce/session/user binding, expiry, and atomic consumption.
+Browser mutations require exact HTTPS Origin and same-origin Fetch Metadata;
+native mutations use the separate HA-authenticated channel described above.
+Both require no query payload, bounded body size, nonce/session/user/channel
+binding, expiry, and atomic consumption.
 The read-only integration token cannot open the UI, remember identities, create
 an SSH grant, or submit a password.
 
@@ -186,8 +214,7 @@ Before disruptive hardware testing, prove remote ingress and control survive
 loss of the target Mac, establish a usable fallback, verify the exact outlet,
 backup, safe shutdown/power-on procedure, and outage scope, then obtain concrete
 approval. An unvalidated recovery attempt cannot be its own fallback.
-User-direct
-password entry and independent service checks remain required.
+Use the reviewed password-entry path and independent service checks.
 
 Publication requires source/history/private-data review, exact-head CI,
 negative identity/intent/expiry/concurrency tests, native container smoke,
