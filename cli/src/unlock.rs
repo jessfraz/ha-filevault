@@ -72,6 +72,11 @@ struct Attempt {
     outcome: Outcome,
 }
 
+#[derive(Deserialize)]
+struct PreparationFailure {
+    error_code: String,
+}
+
 struct Api {
     client: Client,
     ingress: ha::Ingress,
@@ -103,7 +108,7 @@ impl Api {
     }
 }
 
-async fn decode<T: DeserializeOwned>(mut response: Response) -> Result<T, &'static str> {
+async fn decode<T: DeserializeOwned>(response: Response) -> Result<T, &'static str> {
     match response.status().as_u16() {
         200 => (),
         401 | 403 => return Err("FileVault access denied; allow this HA user in the app settings"),
@@ -112,6 +117,10 @@ async fn decode<T: DeserializeOwned>(mut response: Response) -> Result<T, &'stat
         300..=399 => return Err("FileVault redirect refused"),
         _ => return Err("FileVault request unavailable"),
     }
+    read_json(response).await
+}
+
+async fn read_json<T: DeserializeOwned>(mut response: Response) -> Result<T, &'static str> {
     let mut bytes = Zeroizing::new(Vec::new());
     while let Some(chunk) = response
         .chunk()
@@ -248,7 +257,11 @@ pub async fn run(options: Args) -> Result<(), &'static str> {
     };
     let deadline = Instant::now() + Duration::from_secs(300);
     let mut wait_notice = false;
-    loop {
+    let mut ssh_notice = false;
+    let response = loop {
+        if Instant::now() >= deadline {
+            return Err("SSH recovery did not become available; no password sent");
+        }
         let status: Status = api.get("v1/status").await?;
         if status.running() {
             return Ok(());
@@ -260,26 +273,44 @@ pub async fn run(options: Args) -> Result<(), &'static str> {
             return Err("SSH recovery is not configured in the FileVault app");
         }
         let recovery: Recovery = api.get("v1/recovery").await?;
-        if !recovery.busy && recovery.retry_after_ms == 0 {
-            break;
+        if recovery.busy || recovery.retry_after_ms > 0 {
+            if !wait_notice {
+                eprintln!("Waiting for the current recovery or cooldown…");
+                wait_notice = true;
+            }
+            sleep(Duration::from_millis(
+                recovery.retry_after_ms.clamp(1000, 3000),
+            ))
+            .await;
+            continue;
         }
-        if Instant::now() >= deadline {
-            return Err("recovery remained busy; no password sent");
+        let response = api
+            .request(Method::POST, "v1/cli/session")?
+            .send()
+            .await
+            .map_err(|_| "SSH preparation failed; no password sent")?;
+        if matches!(response.status().as_u16(), 502 | 504) {
+            let failure: PreparationFailure = read_json(response).await?;
+            if failure.error_code == "ssh_identity" {
+                return Err("SSH identity verification failed; no password sent");
+            }
+            if !matches!(
+                failure.error_code.as_str(),
+                "ssh_unavailable" | "ssh_timeout" | "ssh_resolution"
+            ) {
+                return Err("SSH preparation failed; no password sent");
+            }
+            // These errors are issued before a grant exists or a password is
+            // accepted. Retry preparation only, never credential submission.
+            if !ssh_notice {
+                eprintln!("Waiting for the Mac's SSH service to become available…");
+                ssh_notice = true;
+            }
+            sleep(Duration::from_secs(2)).await;
+            continue;
         }
-        if !wait_notice {
-            eprintln!("Waiting for the current recovery or cooldown…");
-            wait_notice = true;
-        }
-        sleep(Duration::from_millis(
-            recovery.retry_after_ms.clamp(1000, 3000),
-        ))
-        .await;
-    }
-    let response = api
-        .request(Method::POST, "v1/cli/session")?
-        .send()
-        .await
-        .map_err(|_| "SSH preparation failed; no password sent")?;
+        break response;
+    };
     // Decode HTTP rejection before requiring the session cookie.
     if response.status().as_u16() != 200 {
         decode::<Challenge>(response).await?;
