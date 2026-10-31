@@ -1222,6 +1222,23 @@ async fn native_http_uses_real_ssh_and_cannot_cross_browser_grants() {
             .unwrap()
             .to_owned();
         let grant: Grant = response.json().await.unwrap();
+        if !cross_browser {
+            // Reproduce the native client's former duplicate-Cookie request.
+            // The server reads the first Cookie header and rejects it before SSH.
+            let rejected = native("/v1/cli/attempt")
+                .header("cookie", "ingress_session=DUMMY")
+                .header("cookie", &cookie)
+                .header("x-filevault-nonce", &grant.nonce)
+                .header("x-filevault-confirm", "manual_ssh")
+                .header("content-type", "application/octet-stream")
+                .body("DUMMY_SENTINEL")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(rejected.status(), 403);
+            assert_eq!(fixture.state.passwords.load(Ordering::SeqCst), 0);
+        }
+        let cookie = format!("ingress_session=DUMMY; {cookie}");
         let request = if cross_browser {
             client
                 .post(format!("{base}/v1/manual/attempt"))

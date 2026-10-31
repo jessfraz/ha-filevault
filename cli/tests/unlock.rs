@@ -249,6 +249,19 @@ async fn serve(
                 !matches!(mode, Mode::Untrusted)
             ),
         ),
+        "v1/cli/attempt"
+            if lower
+                .lines()
+                .filter(|line| line.starts_with("cookie:"))
+                .count()
+                != 1 =>
+        {
+            (
+                403,
+                String::new(),
+                r#"{"message":"request grant required"}"#.into(),
+            )
+        }
         "v1/cli/attempt" => {
             assert!(lower.contains(&format!("; fv_session={GRANT}")));
             assert!(lower.contains(&format!("x-filevault-nonce: {NONCE}")));
@@ -375,4 +388,27 @@ fn routine_unlock_output_does_not_disclose_the_configured_ssh_account() {
     assert!(output.status.success());
     assert!(!String::from_utf8_lossy(&output.stderr).contains("DUMMY_PRIVATE_SSH_ACCOUNT"));
     assert!(!String::from_utf8_lossy(&output.stdout).contains("DUMMY_PRIVATE_SSH_ACCOUNT"));
+}
+
+#[test]
+fn recovery_grant_and_ingress_session_share_one_cookie_header() {
+    let fixture = Fixture::new(Mode::Unlock);
+    let output = fixture.invoke(format!("{PASSWORD}\n").as_bytes());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let requests = fixture.requests.lock().unwrap();
+    let attempt = requests
+        .iter()
+        .find(|r| r.starts_with("POST ") && r.contains("/cli/attempt "))
+        .unwrap();
+    let cookies: Vec<_> = attempt
+        .lines()
+        .filter(|line| line.to_ascii_lowercase().starts_with("cookie:"))
+        .collect();
+    assert_eq!(cookies.len(), 1);
+    assert!(cookies[0].contains("ingress_session=dummy-session"));
+    assert!(cookies[0].contains(&format!("fv_session={GRANT}")));
 }

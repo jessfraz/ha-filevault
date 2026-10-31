@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2
+
+- Send the HA ingress session and recovery grant in one Cookie header so native
+  unlock and identity confirmation work through the real HA ingress proxy.
+- Report rejected requests without assuming the allowed-user settings are wrong.
+
 ## 0.1.1
 
 - Add `ha-filevault unlock`: use the configured Mac, enter one password, and

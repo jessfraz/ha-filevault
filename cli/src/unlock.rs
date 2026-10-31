@@ -82,7 +82,12 @@ struct Api {
 }
 
 impl Api {
-    fn request(&self, method: Method, path: &str) -> Result<reqwest::RequestBuilder, &'static str> {
+    fn request(
+        &self,
+        method: Method,
+        path: &str,
+        cookie: &HeaderValue,
+    ) -> Result<reqwest::RequestBuilder, &'static str> {
         let url = self
             .ingress
             .base
@@ -92,14 +97,14 @@ impl Api {
             .client
             .request(method, url)
             .timeout(Duration::from_secs(15))
-            .header("cookie", self.ingress.cookie.clone())
+            .header("cookie", cookie.clone())
             .header("x-filevault-client", "native-cli")
             .header("accept", "application/json"))
     }
 
     async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, &'static str> {
         let response = self
-            .request(Method::GET, path)?
+            .request(Method::GET, path, &self.ingress.cookie)?
             .send()
             .await
             .map_err(|_| "FileVault observation failed")?;
@@ -110,7 +115,9 @@ impl Api {
 async fn decode<T: DeserializeOwned>(response: Response) -> Result<T, &'static str> {
     match response.status().as_u16() {
         200 => (),
-        401 | 403 => return Err("FileVault access denied; allow this HA user in the app settings"),
+        401 | 403 => {
+            return Err("FileVault request denied; check HA user access and session expiry");
+        }
         404 => return Err("FileVault app needs an update to support native unlock"),
         409 | 429 => return Err("FileVault recovery is busy or cooling down; no retry was sent"),
         300..=399 => return Err("FileVault redirect refused"),
@@ -281,7 +288,7 @@ pub async fn run(options: Args) -> Result<(), &'static str> {
             continue;
         }
         let response = api
-            .request(Method::POST, "v1/cli/session")?
+            .request(Method::POST, "v1/cli/session", &api.ingress.cookie)?
             .send()
             .await
             .map_err(|_| "SSH preparation failed; no password sent")?;
@@ -331,8 +338,7 @@ pub async fn run(options: Args) -> Result<(), &'static str> {
     nonce.set_sensitive(true);
     if confirm_target(&challenge.target, options.password_stdin)? {
         let response = api
-            .request(Method::POST, "v1/cli/trust")?
-            .header("cookie", cookies.clone())
+            .request(Method::POST, "v1/cli/trust", &cookies)?
             .header("x-filevault-nonce", nonce.clone())
             .header("x-filevault-confirm", "verified_host_identity")
             .send()
@@ -345,9 +351,8 @@ pub async fn run(options: Args) -> Result<(), &'static str> {
     let password = password(options.password_stdin)?;
     eprintln!("Sending one password attempt; waiting for verified normal runtime…");
     let attempt = api
-        .request(Method::POST, "v1/cli/attempt")?
+        .request(Method::POST, "v1/cli/attempt", &cookies)?
         .timeout(Duration::from_secs(180))
-        .header("cookie", cookies)
         .header("x-filevault-nonce", nonce)
         .header("x-filevault-confirm", "manual_ssh")
         .header("content-type", "application/octet-stream")
