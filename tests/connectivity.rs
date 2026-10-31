@@ -64,7 +64,7 @@ impl server::Handler for Peer {
     async fn auth_publickey_offered(
         &mut self,
         _: &str,
-        _: &russh::keys::PublicKey,
+        _: server::PublicKeyOffer<'_>,
     ) -> Result<server::Auth, Self::Error> {
         self.0.fetch_add(1, Ordering::SeqCst);
         Ok(server::Auth::reject())
