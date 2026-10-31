@@ -1134,3 +1134,145 @@ async fn shared_profile_http_flow_verifies_new_and_changed_servers_before_passwo
         server.close().await.unwrap();
     }
 }
+
+#[tokio::test]
+async fn native_http_uses_real_ssh_and_cannot_cross_browser_grants() {
+    use filevault::api::{self, Access, Context};
+    #[derive(serde::Deserialize)]
+    struct Grant {
+        nonce: String,
+    }
+    #[derive(serde::Deserialize)]
+    struct ResultReport {
+        outcome: String,
+    }
+    let fixture = Fixture::start(StateFixture::default()).await;
+    let server = api::start(
+        "127.0.0.1:0".parse().unwrap(),
+        Arc::new(Context::with_controller(
+            Access::Ingress {
+                peer: "127.0.0.1".parse().unwrap(),
+                users: ["user".into()].into(),
+            },
+            Arc::new(fixture.manual_controller()),
+        )),
+    )
+    .unwrap();
+    let base = format!("http://{}", server.local_addr());
+    let client = reqwest::Client::new();
+    let native = |path: &str| {
+        client
+            .post(format!("{base}{path}"))
+            .header("x-remote-user-id", "user")
+            .header("x-filevault-client", "native-cli")
+    };
+    assert_eq!(
+        client
+            .post(format!("{base}/v1/cli/session"))
+            .header("x-remote-user-id", "user")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    for (header, value) in [
+        ("origin", "https://ha.example.invalid"),
+        ("sec-fetch-site", "same-origin"),
+        ("sec-fetch-mode", "cors"),
+    ] {
+        assert_eq!(
+            native("/v1/cli/session")
+                .header(header, value)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+    }
+    assert_eq!(
+        native("/v1/cli/session?extra=1")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        client
+            .post(format!("{base}/v1/cli/session"))
+            .header("x-filevault-client", "native-cli")
+            .header("x-remote-user-id", "other-user")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    for cross_browser in [true, false] {
+        let response = native("/v1/cli/session").send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        let cookie = response.headers()["set-cookie"]
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_owned();
+        let grant: Grant = response.json().await.unwrap();
+        let request = if cross_browser {
+            client
+                .post(format!("{base}/v1/manual/attempt"))
+                .header("x-remote-user-id", "user")
+                .header("origin", "https://ha.example.invalid")
+                .header("sec-fetch-site", "same-origin")
+        } else {
+            native("/v1/cli/attempt")
+        };
+        let result: ResultReport = request
+            .header("cookie", &cookie)
+            .header("x-filevault-nonce", &grant.nonce)
+            .header("x-filevault-confirm", "manual_ssh")
+            .header("content-type", "application/octet-stream")
+            .body("DUMMY_SENTINEL")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(
+            result.outcome,
+            if cross_browser {
+                "rejected"
+            } else {
+                "authenticated"
+            }
+        );
+        assert_eq!(
+            fixture.state.passwords.load(Ordering::SeqCst),
+            usize::from(!cross_browser)
+        );
+        let replay: ResultReport = native("/v1/cli/attempt")
+            .header("cookie", cookie)
+            .header("x-filevault-nonce", grant.nonce)
+            .header("x-filevault-confirm", "manual_ssh")
+            .header("content-type", "application/octet-stream")
+            .body("DUMMY_SENTINEL")
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(replay.outcome, "rejected");
+    }
+    assert_eq!(fixture.state.passwords.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        native("/v1/cli/session").send().await.unwrap().status(),
+        429
+    );
+    server.close().await.unwrap();
+}

@@ -119,7 +119,9 @@ fn command() -> Command {
     // Tests never inherit real native or server credentials.
     command
         .env_remove("HA_FILEVAULT_URL")
-        .env_remove("HA_FILEVAULT_TOKEN_FILE");
+        .env_remove("HA_FILEVAULT_TOKEN_FILE")
+        .env_remove("HOME_ASSISTANT_URL")
+        .env_remove("HOME_ASSISTANT_TOKEN");
     command
 }
 
@@ -317,7 +319,6 @@ fn configuration_and_argument_failures_do_not_echo_sensitive_values() {
         .unwrap();
     assert_safe_failure(&output, "invalid external API origin");
     for operation in [
-        "unlock",
         "manual",
         "connectivity",
         "history",

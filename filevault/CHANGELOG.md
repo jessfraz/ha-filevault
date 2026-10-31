@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- Add `ha-filevault unlock`: use the configured Mac, enter one password, and
+  wait for independently verified normal runtime through Home Assistant.
+- Keep native recovery separate from browser grants and read-only integration
+  tokens, with the same SSH trust, cooldown, and no-retry checks.
+
 ## 0.1.0
 
 - Promote FileVault from experimental after repeated supervised Mac unlocks.
