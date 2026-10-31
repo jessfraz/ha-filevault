@@ -25,6 +25,7 @@ const GRANT: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 
 #[derive(Clone, Copy)]
 enum Mode {
+    Startup,
     Running,
     Unlock,
     Reject,
@@ -68,11 +69,12 @@ impl Fixture {
             tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async move {
                 let listener = TcpListener::from_std(socket).unwrap();
                 let attempted = Arc::new(AtomicBool::new(false));
+                let starting = Arc::new(AtomicBool::new(matches!(mode, Mode::Startup)));
                 while !stopped.load(Ordering::Relaxed) {
                     tokio::select! {
                         accepted = listener.accept() => {
                             let (stream, _) = accepted.unwrap();
-                            tokio::spawn(serve(stream, mode, record.clone(), attempted.clone()));
+                            tokio::spawn(serve(stream, mode, record.clone(), attempted.clone(), starting.clone()));
                         }
                         _ = tokio::time::sleep(Duration::from_millis(5)) => (),
                     }
@@ -127,6 +129,7 @@ async fn serve(
     mode: Mode,
     record: Arc<Mutex<Vec<String>>>,
     attempted: Arc<AtomicBool>,
+    starting: Arc<AtomicBool>,
 ) {
     let mut prefix = [0; 64];
     let count = stream.peek(&mut prefix).await.unwrap();
@@ -227,6 +230,11 @@ async fn serve(
             200,
             String::new(),
             r#"{"busy":false,"retry_after_ms":0}"#.into(),
+        ),
+        "v1/cli/session" if starting.swap(false, Ordering::SeqCst) => (
+            502,
+            String::new(),
+            r#"{"error_code":"ssh_unavailable","message":"DUMMY_SENSITIVE_BODY"}"#.into(),
         ),
         "v1/cli/session" if matches!(mode, Mode::Redirect) => (
             302,
@@ -331,4 +339,31 @@ fn untrusted_identity_invalid_password_redirect_and_rejection_are_not_retried() 
             fixture.assert_no_password_post();
         }
     }
+}
+
+#[test]
+fn waits_for_ssh_startup_before_prompting_or_sending_a_password() {
+    let fixture = Fixture::new(Mode::Startup);
+    let output = fixture.invoke(format!("{PASSWORD}\n").as_bytes());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let requests = fixture.requests.lock().unwrap();
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|r| r.starts_with("POST ") && r.contains("/cli/session "))
+            .count(),
+        2
+    );
+    assert_eq!(
+        requests
+            .iter()
+            .filter(|r| r.starts_with("POST ") && r.contains("/cli/attempt "))
+            .count(),
+        1
+    );
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("DUMMY_SENSITIVE_BODY"));
 }

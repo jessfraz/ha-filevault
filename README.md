@@ -307,8 +307,9 @@ in the FileVault app. Both the app and CLI must support native unlock.
 The read-only integration token cannot authorize this command.
 
 If the Mac is already running, the command verifies fresh normal-runtime
-evidence and exits without reading a password. Otherwise it waits for an
-existing recovery or cooldown, shows the target and SSH fingerprint, and asks
+evidence and exits without reading a password. Otherwise it waits for SSH
+startup, an existing recovery, or cooldown, shows the target and SSH fingerprint,
+and asks
 for the Mac login password with echo disabled. A new SSH identity requires
 explicit fingerprint confirmation; verify it independently before trusting it.
 The prepared SSH connection expires after 60 seconds, including prompt time.
