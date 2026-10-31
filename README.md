@@ -278,10 +278,10 @@ restart or power-cycle action. Missing status never proves locked; Running does
 not prove desktop or application health. Debounce resets on automation reload;
 cooldown uses HA's `last_triggered` state.
 
-## Native read-only CLI
+## Native CLI
 
-`ha-filevault` is a separate Rust client, not the `filevault` server. It reads
-only the external integration API, never HA ingress. Build or run it with Nix:
+`ha-filevault` is a separate Rust client from the `filevault` server.
+Build or run it with Nix:
 
 ```sh
 nix build .#ha-filevault
@@ -290,12 +290,59 @@ nix run .#ha-filevault -- --help
 nix run . -- --version
 ```
 
+### Unlock and wait
+
+With the same Home Assistant connection used by other HA tools:
+
+```sh
+export HOME_ASSISTANT_URL=https://homeassistant.example.invalid
+# Supply HOME_ASSISTANT_TOKEN through your existing secret manager.
+ha-filevault unlock
+```
+
+The command finds the FileVault app and uses its configured Mac, username,
+trusted SSH identities, and normal-runtime check. No host or user flags are
+needed. The HA token must belong to an administrator whose user ID is allowed
+in the FileVault app. Both the app and CLI must support native unlock.
+The read-only integration token cannot authorize this command.
+
+If the Mac is already running, the command verifies fresh normal-runtime
+evidence and exits without reading a password. Otherwise it waits for an
+existing recovery or cooldown, shows the target and SSH fingerprint, and asks
+for the Mac login password with echo disabled. A new SSH identity requires
+explicit fingerprint confirmation; verify it independently before trusting it.
+The prepared SSH connection expires after 60 seconds, including prompt time.
+
+For automation, pipe one password line into `ha-filevault unlock
+--password-stdin`. This mode requires an already trusted SSH identity. Supply
+the password from a secret manager, never a literal shell argument, environment
+variable, or saved script. An already running Mac does not consume stdin.
+
+Progress goes to stderr. Exit 0 and `Mac is running (fresh runtime verified).`
+on stdout mean a fresh independent normal-runtime check passed. SSH password
+authentication by itself is insufficient. The CLI waits up to five minutes for
+runtime after the attempt completes. A rejected, unavailable, or unconfirmed
+result exits nonzero, and the password is never retried. If the response is
+lost, runtime observation continues without resending the attempt. Closing the
+CLI does not cancel an attempt already accepted by the server. Running does
+not prove desktop login or application health.
+
+Owner recovery uses HA's authenticated WebSocket API to create a short-lived
+ingress session bound to the actual HA user. The CLI does not forge ingress
+identity or browser-origin headers, change app options, create access tokens,
+or persist credentials. HTTPS and ordinary certificate validation are required;
+HTTP is accepted only for loopback. Redirects and ambient proxies are disabled.
+Library/request buffers may temporarily contain credential copies; guaranteed
+memory erasure is not claimed.
+
+### Read-only integration commands
+
 Provision a dedicated client-side file containing the read-only integration
 service token through the existing secret-management workflow. It must be an
 owner-only regular file (mode 0600 or 0400), containing 32–256 ASCII graphic
 characters with an optional final LF or CRLF. This is a raw token, not the app's
 JSON credential file, an HA access token, an owner credential, or a Mac password.
-The CLI does not discover, create, rotate, or save credentials.
+These commands do not discover, create, rotate, or save credentials.
 
 ```sh
 export HA_FILEVAULT_URL=https://filevault.example.invalid
@@ -320,7 +367,7 @@ No token-value command-line option or server-configuration fallback exists.
 | `system` | `GET /v1/system` | Complete typed integration system response |
 | `status` | `GET /v1/status` | Complete typed integration status response |
 
-Each invocation sends one bearer-authenticated GET, with no preflight, redirect,
+Each read-only invocation sends one bearer-authenticated GET, with no preflight, redirect,
 retry, ingress headers, cookies, or request body. `system` requires the response's
 `integration` credential role. `status` calls the existing fresh-observation
 endpoint, which can perform the server's normal password-free SSH handshake;

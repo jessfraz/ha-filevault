@@ -1,7 +1,7 @@
 use crate::{
     config::MacConfig,
     connectivity::{ConnectionChecks, ConnectivityReport},
-    guard::{AttemptGuard, Reject},
+    guard::{AttemptGuard, ClientKind, Reject, RequestClient},
     policy::{Decision, Evidence, State, decide},
     runtime::{RuntimeCheck, RuntimeObserver},
     secret::Secret,
@@ -77,6 +77,13 @@ struct Pending {
     mode: AttemptMode,
     trusted: bool,
     server_key: Option<russh::keys::PublicKey>,
+}
+
+struct RequestGrant<'a> {
+    nonce: &'a str,
+    cookie: &'a str,
+    user: &'a str,
+    client: RequestClient<'a>,
 }
 struct Inner {
     guard: AttemptGuard,
@@ -419,11 +426,30 @@ impl Controller {
         if proof2.state != State::VerifiedPreboot || proof2.identity != proof.identity {
             return Err(Failure::Identity);
         }
-        self.issue_session(user, second, AttemptMode::Automatic, true, None)
-            .await
+        self.issue_session(
+            user,
+            second,
+            AttemptMode::Automatic,
+            true,
+            None,
+            ClientKind::Browser,
+        )
+        .await
     }
 
     pub async fn manual_challenge(&self, user: &str) -> Result<ManualChallenge, Failure> {
+        self.manual_challenge_for(user, ClientKind::Browser).await
+    }
+
+    pub(crate) async fn cli_challenge(&self, user: &str) -> Result<ManualChallenge, Failure> {
+        self.manual_challenge_for(user, ClientKind::NativeCli).await
+    }
+
+    async fn manual_challenge_for(
+        &self,
+        user: &str,
+        client: ClientKind,
+    ) -> Result<ManualChallenge, Failure> {
         let _preparing = self.preparing.try_acquire().map_err(|_| Failure::Busy)?;
         if !self.manual_ready() {
             return Err(Failure::Unverified);
@@ -442,6 +468,7 @@ impl Controller {
                 AttemptMode::Manual,
                 connection.target.trusted,
                 Some(connection.server_key),
+                client,
             )
             .await?;
         Ok(ManualChallenge {
@@ -457,6 +484,7 @@ impl Controller {
         mode: AttemptMode,
         trusted: bool,
         server_key: Option<russh::keys::PublicKey>,
+        client: ClientKind,
     ) -> Result<Challenge, Failure> {
         let nonce = random_token()?;
         let cookie = random_token()?;
@@ -465,7 +493,7 @@ impl Controller {
         inner.pending.retain(|_, pending| pending.expires > now);
         if !inner
             .guard
-            .issue(nonce.clone(), user.into(), cookie.clone(), now)
+            .issue_for(nonce.clone(), user.into(), cookie.clone(), client, now)
         {
             return Err(Failure::Rejected);
         }
@@ -501,7 +529,12 @@ impl Controller {
         self.submit_mode(
             AttemptMode::Automatic,
             true,
-            [nonce, cookie, user, origin],
+            RequestGrant {
+                nonce,
+                cookie,
+                user,
+                client: RequestClient::Browser(origin),
+            },
             password,
         )
         .await
@@ -514,10 +547,41 @@ impl Controller {
         user: &str,
         origin: &str,
     ) -> Result<(), Failure> {
+        self.trust_manual_for(RequestGrant {
+            nonce,
+            cookie,
+            user,
+            client: RequestClient::Browser(origin),
+        })
+        .await
+    }
+
+    pub(crate) async fn cli_trust(
+        &self,
+        nonce: &str,
+        cookie: &str,
+        user: &str,
+    ) -> Result<(), Failure> {
+        self.trust_manual_for(RequestGrant {
+            nonce,
+            cookie,
+            user,
+            client: RequestClient::NativeCli,
+        })
+        .await
+    }
+
+    async fn trust_manual_for(&self, request: RequestGrant<'_>) -> Result<(), Failure> {
+        let RequestGrant {
+            nonce,
+            cookie,
+            user,
+            client,
+        } = request;
         let mut inner = self.inner.lock().await;
         if !inner
             .guard
-            .owns(nonce, user, cookie, origin, Instant::now())
+            .owns_for(nonce, user, cookie, client, Instant::now())
         {
             return Err(Failure::Rejected);
         }
@@ -553,7 +617,34 @@ impl Controller {
         self.submit_mode(
             AttemptMode::Manual,
             confirmed,
-            [nonce, cookie, user, origin],
+            RequestGrant {
+                nonce,
+                cookie,
+                user,
+                client: RequestClient::Browser(origin),
+            },
+            password,
+        )
+        .await
+    }
+
+    pub(crate) async fn cli_submit(
+        &self,
+        nonce: &str,
+        cookie: &str,
+        user: &str,
+        confirmed: bool,
+        password: Secret,
+    ) -> Outcome {
+        self.submit_mode(
+            AttemptMode::Manual,
+            confirmed,
+            RequestGrant {
+                nonce,
+                cookie,
+                user,
+                client: RequestClient::NativeCli,
+            },
             password,
         )
         .await
@@ -563,20 +654,25 @@ impl Controller {
         &self,
         mode: AttemptMode,
         confirmed: bool,
-        request: [&str; 4],
+        request: RequestGrant<'_>,
         password: Secret,
     ) -> Outcome {
-        let [nonce, cookie, user, origin] = request;
+        let RequestGrant {
+            nonce,
+            cookie,
+            user,
+            client,
+        } = request;
         let now = Instant::now();
         let mut inner = self.inner.lock().await;
         let pending = inner.pending.remove(nonce);
         let accepted = inner
             .guard
-            .begin(
+            .begin_for(
                 nonce,
                 user,
                 cookie,
-                origin,
+                client,
                 confirmed
                     && pending
                         .as_ref()
@@ -594,9 +690,10 @@ impl Controller {
             "Checking the retained SSH connection and server identity before authentication.",
         )
         .await;
-        let mut session = pending
-            .expect("accepted grant has a pending session")
-            .session;
+        let Some(pending) = pending else {
+            return self.finish_activity(user, Outcome::Rejected).await;
+        };
+        let mut session = pending.session;
         if mode == AttemptMode::Automatic
             && !matches!(
                 tokio::time::timeout(CONNECT_LIMIT, self.transport.runtime_ready()).await,

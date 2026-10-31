@@ -1,5 +1,5 @@
 {
-  description = "FileVault development environment and read-only CLI";
+  description = "FileVault development environment and CLI";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
@@ -51,7 +51,7 @@
         # Real-process HTTP fixtures need loopback access inside Darwin's sandbox.
         __darwinAllowLocalNetworking = true;
         meta = {
-          description = "Read-only external API CLI for Home Assistant FileVault";
+          description = "Home Assistant FileVault CLI";
           license = pkgs.lib.licenses.mit;
           mainProgram = "ha-filevault";
           platforms = systems;

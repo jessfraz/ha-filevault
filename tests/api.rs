@@ -60,6 +60,9 @@ async fn status_is_authenticated_no_store_and_never_claims_unlock_ready() {
         "/v1/manual/session",
         "/v1/manual/attempt",
         "/v1/manual/trust",
+        "/v1/cli/session",
+        "/v1/cli/attempt",
+        "/v1/cli/trust",
     ] {
         assert_eq!(
             client

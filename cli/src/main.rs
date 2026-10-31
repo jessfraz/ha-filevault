@@ -1,4 +1,6 @@
-//! Native read-only client. No server modules or ingress authentication are used.
+//! Native client. Integration reads and HA-authenticated recovery stay separate.
+mod ha;
+mod unlock;
 use clap::{Parser, Subcommand, error::ErrorKind};
 use reqwest::{Client, Url, header::HeaderValue};
 use serde::{Deserialize, Serialize};
@@ -26,13 +28,16 @@ enum Command {
     System,
     /// Read a fresh status observation (may perform the server's normal SSH handshake)
     Status,
+    /// Unlock the configured Mac and wait for verified normal runtime
+    Unlock(unlock::Args),
 }
 
 impl Command {
-    fn path(self) -> &'static str {
+    fn path(self) -> Option<&'static str> {
         match self {
-            Self::System => "/v1/system",
-            Self::Status => "/v1/status",
+            Self::System => Some("/v1/system"),
+            Self::Status => Some("/v1/status"),
+            Self::Unlock(_) => None,
         }
     }
 }
@@ -118,7 +123,7 @@ fn endpoint(value: &str, command: Command) -> Result<Url, &'static str> {
     {
         return Err(invalid);
     }
-    url.set_path(command.path());
+    url.set_path(command.path().ok_or(invalid)?);
     Ok(url)
 }
 
@@ -161,6 +166,10 @@ impl From<&'static str> for Failure {
 }
 
 async fn run(args: Args) -> Result<String, Failure> {
+    if let Command::Unlock(options) = args.command {
+        unlock::run(options).await?;
+        return Ok("Mac is running (fresh runtime verified).".into());
+    }
     let url = endpoint(
         args.url
             .as_deref()
@@ -221,6 +230,7 @@ async fn run(args: Args) -> Result<String, Failure> {
             let report: StatusResponse = serde_json::from_slice(&body).map_err(|_| invalid)?;
             serde_json::to_string(&report)
         }
+        Command::Unlock(_) => return Err("invalid integration command".into()),
     }
     .map_err(|_| Failure::from("JSON output unavailable"))
 }
