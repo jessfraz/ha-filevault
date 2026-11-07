@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.3
+
+- Expire stale HA status instead of retaining a running observation.
+- Expose safe observation freshness and configuration counts on the status sensor.
+- Match the app header and source footer to the other apps.
+
 ## 0.1.2
 
 - Send the HA ingress session and recovery grant in one Cookie header so native

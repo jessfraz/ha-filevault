@@ -37,7 +37,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visibl
 h1, h2, h3, p, dd { overflow-wrap: anywhere; }
 h1, h2, h3 { color: inherit; }
 .app-header, .recovery-layout, .app-footer { max-width: 1000px; padding: 32px; margin: auto; }
-.app-header { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding-top: 36px; padding-bottom: 26px; border-bottom: 1px solid var(--line); }
+.app-header { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding-top: 24px; padding-bottom: 20px; border-bottom: 1px solid var(--line); }
 .wordmark { display: inline-flex; align-items: center; gap: 10px; font-size: 17px; font-weight: 600; text-decoration: none; letter-spacing: -.2px; }
 .brand-dark { display: none; }
 @media (prefers-color-scheme: dark) {
@@ -74,9 +74,11 @@ h1, h2, h3 { color: inherit; }
 .note-number { position: absolute; left: 0; top: 1px; color: var(--muted); font: 10px var(--mono); }
 .recovery-note h3 { font-size: 13px; font-weight: 600; margin: 0 0 9px; }
 .recovery-note p { font-size: 12px; margin: 0; }
-.app-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); padding-top: 20px; padding-bottom: 28px; color: var(--muted); font-size: 11px; }
+.app-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; border-top: 1px solid var(--line); padding-top: 20px; padding-bottom: 32px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .app-footer p { margin: 0; }
-.app-footer a { text-decoration: none; }
+.source-link { margin-left: auto; color: inherit; text-decoration: none; }
+.source-link:hover { text-decoration: underline; }
+.wordmark img { flex-shrink: 0; }
 .app-version { font-family: var(--mono); margin-left: 6px; }
 dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); border: 1px solid var(--line); border-radius: 12px; padding: 30px; background: var(--paper); color: var(--ink); box-shadow: 0 20px 80px #00000033; }
 dialog::backdrop { background: #10182088; }
@@ -95,7 +97,9 @@ input[type="password"] { width: 100%; border: 1px solid var(--line); border-radi
 #recovery-status:empty { display: none; }
 @media (max-width: 640px) {
   .app-header, .recovery-layout, .app-footer { padding-left: 20px; padding-right: 20px; }
-  .app-header { padding-top: 22px; padding-bottom: 20px; }
+  .app-header { padding-top: 18px; padding-bottom: 16px; }
+  .app-footer { flex-direction: column; padding-top: 16px; }
+  .source-link { margin-left: 0; }
   .page-heading { align-items: center; margin-bottom: 22px; }
   .page-heading h1 { font-size: 25px; }
   .page-heading button { font-size: 11px; padding: 10px; }
