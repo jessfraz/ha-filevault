@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+- Read cached status and safe configuration health through HA authentication
+  with `--transport home-assistant`, using the installed integration.
+- Keep transport credentials separate and preserve native read and unlock behavior.
+
 ## 0.1.3
 
 - Expire stale HA status instead of retaining a running observation.
