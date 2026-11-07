@@ -1,7 +1,7 @@
 //! Native client. Integration reads and HA-authenticated recovery stay separate.
 mod ha;
 mod unlock;
-use clap::{Parser, Subcommand, error::ErrorKind};
+use clap::{Parser, Subcommand, ValueEnum, error::ErrorKind};
 use reqwest::{Client, Url, header::HeaderValue};
 use serde::{Deserialize, Serialize};
 use std::{io::Read, path::PathBuf, process::ExitCode, time::Duration};
@@ -12,21 +12,30 @@ const MAX_RESPONSE_BYTES: usize = 65_536;
 #[derive(Parser)]
 #[command(version, about, disable_help_subcommand = true)]
 struct Args {
-    /// External API origin, not an HA ingress URL (HTTP requires a trusted network)
-    #[arg(long, env = "HA_FILEVAULT_URL", hide_env_values = true)]
+    /// Read through the native API or the installed Home Assistant integration
+    #[arg(long, value_enum, default_value_t = Transport::Native)]
+    transport: Transport,
+    /// Selected API origin; defaults to HA_FILEVAULT_URL or HOME_ASSISTANT_URL
+    #[arg(long)]
     url: Option<String>,
-    /// Owner-only regular file containing the read-only integration token, not a Mac password
-    #[arg(long, env = "HA_FILEVAULT_TOKEN_FILE", hide_env_values = true)]
+    /// Owner-only token file; native defaults to HA_FILEVAULT_TOKEN_FILE, HA to HOME_ASSISTANT_TOKEN
+    #[arg(long)]
     token_file: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum Transport {
+    Native,
+    HomeAssistant,
 }
 
 #[derive(Clone, Copy, Subcommand)]
 enum Command {
     /// Read capabilities and verify the integration credential role
     System,
-    /// Read a fresh status observation (may perform the server's normal SSH handshake)
+    /// Read status: native makes a fresh observation; HA reads its bounded cached snapshot
     Status,
     /// Unlock the configured Mac and wait for verified normal runtime
     Unlock(unlock::Args),
@@ -63,6 +72,7 @@ struct Decision {
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum RuntimeCheck {
+    Unknown,
     NotConfigured,
     Verified,
     IdentityNeeded,
@@ -104,6 +114,31 @@ struct StatusResponse {
     configuration: Configuration,
 }
 
+#[derive(Deserialize, Serialize)]
+struct HaHealth {
+    available: bool,
+    manual_ready: Option<bool>,
+    advanced_detection_ready: Option<bool>,
+    runtime_check: RuntimeCheck,
+    configuration_error_count: Option<usize>,
+    setup_note_count: Option<usize>,
+}
+
+#[derive(Deserialize, Serialize)]
+struct HaStatus {
+    state: State,
+    observation_age_seconds: Option<u64>,
+    #[serde(flatten)]
+    health: HaHealth,
+}
+
+#[derive(Deserialize, Serialize)]
+struct HaSystem {
+    version: String,
+    #[serde(flatten)]
+    health: HaHealth,
+}
+
 fn endpoint(value: &str, command: Command) -> Result<Url, &'static str> {
     let invalid = "invalid external API origin";
     if value.contains('\\') || value.chars().any(|c| c.is_whitespace() || c.is_control()) {
@@ -127,7 +162,7 @@ fn endpoint(value: &str, command: Command) -> Result<Url, &'static str> {
     Ok(url)
 }
 
-fn credential(path: &std::path::Path) -> Result<HeaderValue, &'static str> {
+fn credential(path: &std::path::Path, maximum: usize) -> Result<HeaderValue, &'static str> {
     use std::os::unix::fs::PermissionsExt;
     let error = "token file must be an owner-only regular file containing an integration token";
     let metadata = std::fs::symlink_metadata(path).map_err(|_| error)?;
@@ -136,7 +171,9 @@ fn credential(path: &std::path::Path) -> Result<HeaderValue, &'static str> {
     }
     let file = std::fs::File::open(path).map_err(|_| error)?;
     let mut bytes = Zeroizing::new(Vec::new());
-    file.take(259).read_to_end(&mut bytes).map_err(|_| error)?;
+    file.take((maximum + 3) as u64)
+        .read_to_end(&mut bytes)
+        .map_err(|_| error)?;
     // Accept a single line with an optional LF or CRLF, not arbitrary whitespace.
     if bytes.last() == Some(&b'\n') {
         bytes.pop();
@@ -144,12 +181,29 @@ fn credential(path: &std::path::Path) -> Result<HeaderValue, &'static str> {
             bytes.pop();
         }
     }
-    if !(32..=256).contains(&bytes.len()) || !bytes.iter().all(u8::is_ascii_graphic) {
+    if !(32..=maximum).contains(&bytes.len()) || !bytes.iter().all(u8::is_ascii_graphic) {
         return Err(error);
     }
     let mut bearer = Zeroizing::new(b"Bearer ".to_vec());
     bearer.extend_from_slice(&bytes);
     let mut header = HeaderValue::from_bytes(&bearer).map_err(|_| error)?;
+    header.set_sensitive(true);
+    Ok(header)
+}
+
+fn ha_credential(path: Option<&std::path::Path>) -> Result<HeaderValue, &'static str> {
+    if let Some(path) = path {
+        return credential(path, 8192);
+    }
+    let token = Zeroizing::new(
+        std::env::var("HOME_ASSISTANT_TOKEN").map_err(|_| "configure HOME_ASSISTANT_TOKEN")?,
+    );
+    if token.is_empty() || token.len() > 8192 || !token.bytes().all(|b| b.is_ascii_graphic()) {
+        return Err("HOME_ASSISTANT_TOKEN is invalid");
+    }
+    let bearer = Zeroizing::new(format!("Bearer {}", token.as_str()));
+    let mut header =
+        HeaderValue::from_str(&bearer).map_err(|_| "HOME_ASSISTANT_TOKEN is invalid")?;
     header.set_sensitive(true);
     Ok(header)
 }
@@ -170,17 +224,42 @@ async fn run(args: Args) -> Result<String, Failure> {
         unlock::run(options).await?;
         return Ok("Mac is running (fresh runtime verified).".into());
     }
-    let url = endpoint(
-        args.url
-            .as_deref()
-            .ok_or("configure HA_FILEVAULT_URL or --url")?,
-        args.command,
-    )?;
-    let token = credential(
-        args.token_file
-            .as_deref()
-            .ok_or("configure HA_FILEVAULT_TOKEN_FILE or --token-file")?,
-    )?;
+    let (url, token) = match args.transport {
+        Transport::Native => {
+            let configured = args.url.or_else(|| std::env::var("HA_FILEVAULT_URL").ok());
+            let url = endpoint(
+                configured
+                    .as_deref()
+                    .ok_or("configure HA_FILEVAULT_URL or --url")?,
+                args.command,
+            )?;
+            let path = args
+                .token_file
+                .or_else(|| std::env::var_os("HA_FILEVAULT_TOKEN_FILE").map(PathBuf::from));
+            let token = credential(
+                path.as_deref()
+                    .ok_or("configure HA_FILEVAULT_TOKEN_FILE or --token-file")?,
+                256,
+            )?;
+            (url, token)
+        }
+        Transport::HomeAssistant => {
+            let configured = args
+                .url
+                .or_else(|| std::env::var("HOME_ASSISTANT_URL").ok());
+            let mut url = ha::origin(
+                configured
+                    .as_deref()
+                    .ok_or("configure HOME_ASSISTANT_URL or --url")?,
+            )?;
+            url.set_path(match args.command {
+                Command::System => "/api/filevault/v1/system",
+                Command::Status => "/api/filevault/v1/status",
+                Command::Unlock(_) => return Err("invalid integration command".into()),
+            });
+            (url, ha_credential(args.token_file.as_deref())?)
+        }
+    };
     let client = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .retry(reqwest::retry::never())
@@ -221,16 +300,24 @@ async fn run(args: Args) -> Result<String, Failure> {
         body.extend_from_slice(&chunk);
     }
     let invalid = "invalid integration API response";
-    match args.command {
-        Command::System => {
+    match (args.transport, args.command) {
+        (Transport::Native, Command::System) => {
             let report: SystemResponse = serde_json::from_slice(&body).map_err(|_| invalid)?;
             serde_json::to_string(&report)
         }
-        Command::Status => {
+        (Transport::Native, Command::Status) => {
             let report: StatusResponse = serde_json::from_slice(&body).map_err(|_| invalid)?;
             serde_json::to_string(&report)
         }
-        Command::Unlock(_) => return Err("invalid integration command".into()),
+        (Transport::HomeAssistant, Command::System) => {
+            let report: HaSystem = serde_json::from_slice(&body).map_err(|_| invalid)?;
+            serde_json::to_string(&report)
+        }
+        (Transport::HomeAssistant, Command::Status) => {
+            let report: HaStatus = serde_json::from_slice(&body).map_err(|_| invalid)?;
+            serde_json::to_string(&report)
+        }
+        (_, Command::Unlock(_)) => return Err("invalid integration command".into()),
     }
     .map_err(|_| Failure::from("JSON output unavailable"))
 }

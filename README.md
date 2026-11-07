@@ -338,8 +338,32 @@ memory erasure is not claimed.
 
 ### Read-only integration commands
 
-Provision a dedicated client-side file containing the read-only integration
-service token through the existing secret-management workflow. It must be an
+With the HA integration installed, use the same HA credential wrapper as the
+other app CLIs:
+
+```sh
+fetch-home-assistant -- ha-filevault --transport home-assistant status
+fetch-home-assistant -- ha-filevault --transport home-assistant system
+```
+
+This selects `HOME_ASSISTANT_URL` and `HOME_ASSISTANT_TOKEN`, ignoring native
+API environment settings. The HA user needs read access to the FileVault
+status entity; Assist exposure is a separate choice. Each command makes one
+authenticated GET to `/api/filevault/v1/status` or `/api/filevault/v1/system`.
+These routes read the current integration's cached observations and safe
+configuration flags/counts, without contacting the app or Mac. An observation
+older than 30 seconds becomes unavailable/unknown. A valid report exits zero
+even when it reports a problem; a missing integration or rejected request exits
+nonzero. Connection identifiers and configuration message text are omitted.
+
+HA access requires HTTPS with ordinary certificate validation, allowing HTTP
+only on loopback. `--url` overrides the selected origin and `--token-file` can
+supply an owner-only HA token file instead of `HOME_ASSISTANT_TOKEN`. No token
+is accepted as a command-line value. Help and version work offline.
+
+Native transport remains the default. For direct native reads, provision a
+dedicated client-side file containing the read-only integration service token
+through the existing secret-management workflow. The file must be an
 owner-only regular file (mode 0600 or 0400), containing 32–256 ASCII graphic
 characters with an optional final LF or CRLF. This is a raw token, not the app's
 JSON credential file, an HA access token, an owner credential, or a Mac password.
@@ -385,9 +409,8 @@ Errors preserve HTTP status with fixed stderr diagnostics and nonzero exit statu
 a 15-second timeout and a 64-KiB response limit. Help and version are offline and
 do not display configured values.
 
-There are deliberately no unlock, manual connection check, connection history,
-recovery activity, identity/trust, session, password, owner, arbitrary-path, or
-mutation commands. The server and its ingress guards are unchanged.
+The read-only commands provide no recovery, trust, password, arbitrary-path or
+mutation access. Manual unlock remains the separate HA ingress command above.
 
 For development, run `nix develop -c cargo run -p ha-filevault -- --help` and
 `nix develop -c cargo test --locked -p ha-filevault`. The root Cargo default

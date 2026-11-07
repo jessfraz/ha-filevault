@@ -17,6 +17,7 @@ const TOKEN: &str = "DUMMY_INTEGRATION_TOKEN_0123456789abcdef";
 const SENTINEL: &str = "DUMMY_SENSITIVE_SENTINEL";
 const SYSTEM: &str = r#"{"version":"0.1.0-alpha.10","credential_role":"integration","manual_ready":false,"configuration_errors":[],"configuration_notes":["DUMMY_SENSITIVE_SENTINEL"],"connection":null,"future_secret":"DUMMY_SENSITIVE_SENTINEL"}"#;
 const STATUS: &str = r#"{"version":"0.1.0-alpha.10","decision":{"state":"unknown","unlock_available":false},"transport_ready":false,"manual_ready":false,"configuration_errors":[],"configuration_notes":[],"runtime_check":"not_configured","connection":null}"#;
+const HA_STATUS: &str = r#"{"available":true,"state":"running","runtime_check":"verified","observation_age_seconds":4,"manual_ready":true,"advanced_detection_ready":false,"configuration_error_count":0,"setup_note_count":1,"future_secret":"DUMMY_SENSITIVE_SENTINEL"}"#;
 
 struct Fixture {
     url: String,
@@ -460,4 +461,120 @@ fn ambient_proxy_and_server_configuration_are_not_native_authority() {
         .output()
         .unwrap();
     assert_safe_failure(&output, "invalid arguments");
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HaStatusOutput {
+    available: bool,
+    state: String,
+    runtime_check: String,
+    observation_age_seconds: Option<u64>,
+    manual_ready: Option<bool>,
+    advanced_detection_ready: Option<bool>,
+    configuration_error_count: Option<usize>,
+    setup_note_count: Option<usize>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HaSystemOutput {
+    version: String,
+    available: bool,
+    runtime_check: String,
+    manual_ready: Option<bool>,
+    advanced_detection_ready: Option<bool>,
+    configuration_error_count: Option<usize>,
+    setup_note_count: Option<usize>,
+}
+
+fn invoke_ha(fixture: &Fixture, subcommand: &str) -> Output {
+    command()
+        .env("HOME_ASSISTANT_URL", &fixture.url)
+        .env("HOME_ASSISTANT_TOKEN", TOKEN)
+        // Native credentials must never override the explicitly selected HA transport.
+        .env("HA_FILEVAULT_URL", SENTINEL)
+        .env("HA_FILEVAULT_TOKEN_FILE", SENTINEL)
+        .args(["--transport", "home-assistant", subcommand])
+        .output()
+        .unwrap()
+}
+
+#[test]
+fn ha_status_uses_one_authenticated_read_without_native_credentials() {
+    let fixture = Fixture::new("200 OK", "", HA_STATUS);
+    let output = invoke_ha(&fixture, "status");
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: HaStatusOutput = serde_json::from_slice(&output.stdout).unwrap();
+    assert!(report.available);
+    assert_eq!(report.state, "running");
+    assert_eq!(report.runtime_check, "verified");
+    assert_eq!(report.observation_age_seconds, Some(4));
+    assert_eq!(report.manual_ready, Some(true));
+    assert_eq!(report.advanced_detection_ready, Some(false));
+    assert_eq!(report.configuration_error_count, Some(0));
+    assert_eq!(report.setup_note_count, Some(1));
+    assert!(!String::from_utf8_lossy(&output.stdout).contains(SENTINEL));
+    fixture.assert_request("/api/filevault/v1/status");
+}
+
+#[test]
+fn ha_system_reports_unknown_health_without_native_fallback() {
+    let fixture = Fixture::new(
+        "200 OK",
+        "",
+        r#"{"version":"0.1.4","available":false,"runtime_check":"unknown","manual_ready":null,"advanced_detection_ready":null,"configuration_error_count":null,"setup_note_count":null}"#,
+    );
+    let output = invoke_ha(&fixture, "system");
+    assert!(output.status.success());
+    let report: HaSystemOutput = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report.version, "0.1.4");
+    assert!(!report.available);
+    assert_eq!(report.runtime_check, "unknown");
+    assert_eq!(report.manual_ready, None);
+    assert_eq!(report.advanced_detection_ready, None);
+    assert_eq!(report.configuration_error_count, None);
+    assert_eq!(report.setup_note_count, None);
+    fixture.assert_request("/api/filevault/v1/system");
+}
+
+#[test]
+fn ha_failures_are_redacted_and_never_retry_or_redirect() {
+    for (status, body, expected) in [
+        ("401 Unauthorized", SENTINEL, "credential rejected"),
+        ("503 Unavailable", SENTINEL, "API unavailable"),
+        ("302 Redirect", SENTINEL, "redirect refused"),
+        ("200 OK", SENTINEL, "invalid integration API response"),
+    ] {
+        let sink = Fixture::new("200 OK", "", HA_STATUS);
+        let fixture = Fixture::new(status, &format!("Location: {}/\r\n", sink.url), body);
+        assert_safe_failure(&invoke_ha(&fixture, "status"), expected);
+        fixture.assert_request("/api/filevault/v1/status");
+        assert!(sink.requests.lock().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn ha_transport_never_falls_back_to_native_or_nonlocal_http() {
+    let fixture = Fixture::new("200 OK", "", HA_STATUS);
+    let token = token_file();
+    let output = command()
+        .env("HA_FILEVAULT_URL", &fixture.url)
+        .env("HA_FILEVAULT_TOKEN_FILE", token.path())
+        .args(["--transport", "home-assistant", "status"])
+        .output()
+        .unwrap();
+    assert_safe_failure(&output, "configure HOME_ASSISTANT_URL");
+    let output = command()
+        .env("HOME_ASSISTANT_URL", "http://remote.example.invalid")
+        .env("HOME_ASSISTANT_TOKEN", TOKEN)
+        .args(["--transport", "home-assistant", "status"])
+        .output()
+        .unwrap();
+    assert_safe_failure(&output, "HTTPS origin");
+    assert!(fixture.requests.lock().unwrap().is_empty());
 }
