@@ -19,6 +19,8 @@ bad = []
 for directory, folders, files in os.walk(ROOT, followlinks=False):
     folders[:] = [name for name in folders if name not in SKIP]
     for name in folders + files:
+        if name in SKIP:
+            continue
         path = Path(directory) / name
         rel = path.relative_to(ROOT)
         if path.is_symlink():
