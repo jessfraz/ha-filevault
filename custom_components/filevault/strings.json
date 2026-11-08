@@ -65,5 +65,23 @@
         }
       }
     }
+  },
+  "issues": {
+    "unlock_required": {
+      "title": "The Mac needs FileVault unlock",
+      "description": "The last verified observation identified a trusted FileVault preboot environment. Open FileVault to review its status and use its existing recovery flow. Home Assistant cannot unlock the Mac."
+    },
+    "status_unavailable": {
+      "title": "FileVault status is unavailable",
+      "description": "The app could not provide a fresh status observation. Check its logs and connection. The Mac may be offline or need unlocking; its boot state is unverified."
+    },
+    "status_unknown": {
+      "title": "The Mac boot state is unverified",
+      "description": "FileVault cannot confirm that the Mac is running or waiting for unlock. Check its status and connection in the app. SSH reachability alone does not confirm its boot state."
+    },
+    "configuration_errors": {
+      "title": "FileVault configuration needs attention",
+      "description": "The app reports {count} configuration error(s). Open its logs and configuration to review them. Existing errors remain until a fresh status confirms they are resolved."
+    }
   }
 }

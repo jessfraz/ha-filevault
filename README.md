@@ -450,3 +450,8 @@ submit improvements with fictional fixtures through pull requests.
 
 MIT. Original icon assets and reused reference styles retain the license and
 copyright notice.
+
+Home Assistant reports app availability failures in Settings → Repairs, with a
+read-only link to the app logs. A fresh successful observation clears the Repair;
+a missing or stale response cannot clear an existing failure.
+Rejected credentials use Home Assistant’s native reauthentication Repair.

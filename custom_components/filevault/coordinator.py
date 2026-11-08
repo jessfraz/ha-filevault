@@ -13,6 +13,7 @@ from homeassistant.util import dt as dt_util
 from .client import FileVaultClient, InvalidAuth
 from .const import DOMAIN
 from .models import Status
+from .repairs import FileVaultRepairs
 
 
 class FileVaultCoordinator(DataUpdateCoordinator[Status]):
@@ -29,6 +30,7 @@ class FileVaultCoordinator(DataUpdateCoordinator[Status]):
         )
         self.client = client
         self.last_success_at: datetime | None = None
+        self.repairs = FileVaultRepairs(hass, entry, self)
 
     async def _async_update_data(self) -> Status:
         try:
@@ -36,6 +38,8 @@ class FileVaultCoordinator(DataUpdateCoordinator[Status]):
             self.last_success_at = dt_util.utcnow()
             return result
         except InvalidAuth as err:
+            self.repairs.async_auth_failed()
             raise ConfigEntryAuthFailed("Status credential rejected") from err
         except (ClientError, TimeoutError, ValueError) as err:
+            self.repairs.async_connection_failed()
             raise UpdateFailed("Cannot read FileVault status") from err

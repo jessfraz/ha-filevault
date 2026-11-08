@@ -11,7 +11,7 @@ from homeassistant.components.automation.helpers import async_get_blueprints
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import async_fire_time_changed
+from pytest_homeassistant.common import async_fire_time_changed
 
 BLUEPRINTS = Path(__file__).resolve().parents[1] / "blueprints/automation/filevault"
 ENTITY = "sensor.fixture_filevault_status"
