@@ -69,7 +69,7 @@
   "issues": {
     "unlock_required": {
       "title": "The Mac needs FileVault unlock",
-      "description": "A trusted FileVault preboot environment was identified. Open FileVault to review its status and use its existing recovery flow. Home Assistant cannot unlock the Mac."
+      "description": "The last verified observation identified a trusted FileVault preboot environment. Open FileVault to review its status and use its existing recovery flow. Home Assistant cannot unlock the Mac."
     },
     "status_unavailable": {
       "title": "FileVault status is unavailable",

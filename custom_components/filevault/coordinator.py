@@ -38,7 +38,7 @@ class FileVaultCoordinator(DataUpdateCoordinator[Status]):
             self.last_success_at = dt_util.utcnow()
             return result
         except InvalidAuth as err:
-            self.repairs.async_connection_failed()
+            self.repairs.async_auth_failed()
             raise ConfigEntryAuthFailed("Status credential rejected") from err
         except (ClientError, TimeoutError, ValueError) as err:
             self.repairs.async_connection_failed()

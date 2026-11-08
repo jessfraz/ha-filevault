@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.event import async_track_time_interval
 
@@ -68,23 +69,44 @@ class FileVaultRepairs:
 
     @callback
     def async_connection_failed(self) -> None:
-        """Initial setup and reauthentication failures also need a native Repair."""
+        """Initial setup and transport failures also need a native Repair."""
         if not self.coordinator._shutdown_requested:
-            self._async_issue("status", "status_unavailable")
+            self._async_issue("availability", "status_unavailable")
+
+    @callback
+    def async_auth_failed(self) -> None:
+        """Core owns rejected credentials; retain distinct confirmed boot faults."""
+        if not self.coordinator._shutdown_requested:
+            ir.async_delete_issue(
+                self.hass, DOMAIN, f"{self.entry.entry_id}_availability"
+            )
 
     @callback
     def async_reconcile(self) -> None:
         # Shutdown unsubscribes future polls without cancelling an in-flight read.
         if self.coordinator._shutdown_requested:
             return
+        if not self.coordinator.last_update_success and isinstance(
+            self.coordinator.last_exception, ConfigEntryAuthFailed
+        ):
+            self.async_auth_failed()
+            return
         snapshot = status_snapshot(self.coordinator)
         if not snapshot["available"]:
             self.async_connection_failed()
             return
+        ir.async_delete_issue(self.hass, DOMAIN, f"{self.entry.entry_id}_availability")
         data = self.coordinator.data
+        status = ir.async_get(self.hass).async_get_issue(
+            DOMAIN, f"{self.entry.entry_id}_status"
+        )
         if data.state == "running":
             ir.async_delete_issue(self.hass, DOMAIN, f"{self.entry.entry_id}_status")
-        else:
+        elif (
+            data.state == "verified_preboot"
+            or status is None
+            or status.translation_key != "unlock_required"
+        ):
             self._async_issue(
                 "status",
                 "unlock_required"

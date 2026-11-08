@@ -35,6 +35,20 @@ def issue(
     return ir.async_get(hass).async_get_issue("filevault", f"{entry.entry_id}_{kind}")
 
 
+def core_auth_key(entry: FileVaultConfigEntry) -> tuple[str, str]:
+    return ("homeassistant", f"config_entry_reauth_filevault_{entry.entry_id}")
+
+
+def owned_issues(
+    hass: HomeAssistant, entry: FileVaultConfigEntry
+) -> set[tuple[str, str]]:
+    return {
+        (item.domain, item.issue_id)
+        for item in ir.async_get(hass).issues.values()
+        if item.config_entry_id == entry.entry_id
+    }
+
+
 async def test_verified_preboot_configuration_and_transport_recovery(
     hass: HomeAssistant,
     entry: FileVaultConfigEntry,
@@ -60,15 +74,16 @@ async def test_verified_preboot_configuration_and_transport_recovery(
     aioclient_mock.clear_requests()
     aioclient_mock.get(URL, status=503)
     await entry.runtime_data.async_refresh()
-    failed = issue(hass, entry, "status")
+    failed = issue(hass, entry, "availability")
     assert failed is not None and failed.translation_key == "status_unavailable"
+    assert issue(hass, entry, "status") is locked
     assert issue(hass, entry, "configuration") is not None
 
     aioclient_mock.clear_requests()
     aioclient_mock.get(URL, json=report("unknown"))
     await entry.runtime_data.async_refresh()
-    unknown = issue(hass, entry, "status")
-    assert unknown is not None and unknown.translation_key == "status_unknown"
+    assert issue(hass, entry, "availability") is None
+    assert issue(hass, entry, "status") is locked
     assert issue(hass, entry, "configuration") is not None
 
     aioclient_mock.clear_requests()
@@ -87,11 +102,15 @@ async def test_initial_backend_failure_creates_owned_repair(
 ) -> None:
     aioclient_mock.get(URL, status=status)
     assert not await hass.config_entries.async_setup(entry.entry_id)
-    failed = issue(hass, entry, "status")
-    assert failed is not None and failed.translation_key == "status_unavailable"
-    assert failed.config_entry_id == entry.entry_id
+    await hass.async_block_till_done()
+    if status == 401:
+        assert owned_issues(hass, entry) == {core_auth_key(entry)}
+    else:
+        failed = issue(hass, entry, "availability")
+        assert failed is not None and failed.translation_key == "status_unavailable"
+        assert failed.config_entry_id == entry.entry_id
     await hass.config_entries.async_remove(entry.entry_id)
-    assert issue(hass, entry, "status") is None
+    assert not owned_issues(hass, entry)
 
 
 async def test_freshness_timer_and_unload_cleanup(
@@ -108,10 +127,10 @@ async def test_freshness_timer_and_unload_cleanup(
     freezer.tick(timedelta(seconds=15))
     async_fire_time_changed(hass, dt_util.utcnow())
     await hass.async_block_till_done()
-    stale = issue(hass, entry, "status")
+    stale = issue(hass, entry, "availability")
     assert stale is not None and stale.translation_key == "status_unavailable"
     assert await hass.config_entries.async_unload(entry.entry_id)
-    ir.async_delete_issue(hass, "filevault", f"{entry.entry_id}_status")
+    ir.async_delete_issue(hass, "filevault", f"{entry.entry_id}_availability")
     freezer.tick(timedelta(minutes=1))
     async_fire_time_changed(hass, dt_util.utcnow())
     await hass.async_block_till_done()
@@ -164,5 +183,58 @@ async def test_late_failed_http_response_cannot_publish_after_unload(
     finally:
         release.set()
         await refresh
-    assert issue(hass, entry, "status") is None
+    assert not owned_issues(hass, entry)
     assert isinstance(coordinator.last_exception, UpdateFailed)
+
+
+async def test_credential_failure_replaces_only_generic_availability(
+    hass: HomeAssistant,
+    entry: FileVaultConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    aioclient_mock.get(URL, json=report("running", errors=[]))
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(URL, status=503)
+    await entry.runtime_data.async_refresh()
+    assert any(
+        item.domain == "filevault" and item.translation_key == "status_unavailable"
+        for item in ir.async_get(hass).issues.values()
+    )
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(URL, status=401)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert owned_issues(hass, entry) == {core_auth_key(entry)}
+    freezer.tick(timedelta(seconds=30))
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert owned_issues(hass, entry) == {core_auth_key(entry)}
+
+
+async def test_credential_failure_retains_confirmed_preboot_and_configuration(
+    hass: HomeAssistant,
+    entry: FileVaultConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    aioclient_mock.get(URL, json=report("verified_preboot", errors=["private detail"]))
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    locked = issue(hass, entry, "status")
+    configuration = issue(hass, entry, "configuration")
+    assert locked is not None and configuration is not None
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(URL, status=401)
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    freezer.tick(timedelta(seconds=30))
+    async_fire_time_changed(hass, dt_util.utcnow())
+    await hass.async_block_till_done()
+    assert issue(hass, entry, "status") is locked
+    assert issue(hass, entry, "configuration") is configuration
+    assert owned_issues(hass, entry) == {
+        core_auth_key(entry),
+        ("filevault", f"{entry.entry_id}_status"),
+        ("filevault", f"{entry.entry_id}_configuration"),
+    }
