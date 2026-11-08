@@ -1,9 +1,12 @@
 """Fixed safe projections shared by queries and native diagnostics."""
 
+from typing import TYPE_CHECKING
+
 from homeassistant.util import dt as dt_util
 from homeassistant.util.json import JsonObjectType
 
-from .coordinator import FileVaultCoordinator
+if TYPE_CHECKING:
+    from .coordinator import FileVaultCoordinator
 
 FRESH_SECONDS = 30
 

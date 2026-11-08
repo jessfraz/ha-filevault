@@ -6,8 +6,8 @@ from datetime import timedelta
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
-from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
+from pytest_homeassistant.test_util.aiohttp import AiohttpClientMocker
+from pytest_homeassistant.typing import ClientSessionGenerator
 
 from custom_components.filevault import FileVaultConfigEntry
 
@@ -55,7 +55,7 @@ async def test_authenticated_reads_are_cached_safe_and_expire(
     assert PRIVATE not in json.dumps(data)
     response = await client.get("/api/filevault/v1/system")
     assert response.status == 200
-    assert (await response.json())["version"] == "0.1.4"
+    assert (await response.json())["version"] == "0.1.5"
     assert len(aioclient_mock.mock_calls) == calls
 
     await loaded.runtime_data.async_shutdown()

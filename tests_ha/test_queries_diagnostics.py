@@ -12,11 +12,11 @@ from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers.llm import LLMContext, ToolInput
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.components.diagnostics import (
+from pytest_homeassistant.components.diagnostics import (
     get_diagnostics_for_config_entry,
 )
-from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
-from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
+from pytest_homeassistant.test_util.aiohttp import AiohttpClientMocker
+from pytest_homeassistant.typing import ClientSessionGenerator
 
 from custom_components.filevault import FileVaultConfigEntry
 from custom_components.filevault.diagnostics import async_get_config_entry_diagnostics
