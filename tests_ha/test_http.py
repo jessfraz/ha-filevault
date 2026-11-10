@@ -55,7 +55,7 @@ async def test_authenticated_reads_are_cached_safe_and_expire(
     assert PRIVATE not in json.dumps(data)
     response = await client.get("/api/filevault/v1/system")
     assert response.status == 200
-    assert (await response.json())["version"] == "0.1.5"
+    assert (await response.json())["version"] == "0.1.6"
     assert len(aioclient_mock.mock_calls) == calls
 
     await loaded.runtime_data.async_shutdown()

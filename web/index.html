@@ -7,16 +7,13 @@
     <base href="__FILEVAULT_BASE__">
     <title>FileVault</title>
     <link rel="icon" href="brand.svg" type="image/svg+xml">
+    <link rel="stylesheet" href="app-kit.css">
     <link rel="stylesheet" href="style.css">
-    <script src="app.js" type="module"></script>
+    <script src="shell.js" type="module"></script>
   </head>
   <body>
     <header class="app-header">
-      <a class="wordmark" href="./" aria-label="FileVault home">
-        <img class="brand-light" src="brand.svg" width="30" height="30" alt="">
-        <img class="brand-dark" src="brand-dark.svg" width="30" height="30" alt="">
-        FileVault
-      </a>
+      <span id="app-brand" hidden><img class="brand-light" src="brand.svg" width="30" height="30" alt=""><img class="brand-dark" src="brand-dark.svg" width="30" height="30" alt=""></span>
     </header>
     <main class="recovery-layout">
       <div class="page-heading">
@@ -37,12 +34,22 @@
       </details>
       </div>
       <section class="profile-summary" aria-labelledby="connection-title">
-        <div><p class="eyebrow">ONE MAC CONNECTION</p><h3 id="connection-title">Shared connection</h3>
+        <div><p class="eyebrow">ONE MAC CONNECTION</p><h2 id="connection-title">Shared connection</h2>
           <p class="field-help">Edit this profile once in FileVault app settings. Manual login and automatic checks use it.</p></div>
         <dl><div><dt>LAN password connection</dt><dd id="shared-target">Not configured</dd></div>
           <div><dt>Tailscale running check</dt><dd id="shared-runtime">Optional, not configured</dd></div></dl>
       </section>
       <p id="setup-note" class="field-help" hidden></p>
+      <section id="status-card" class="recovery-card" aria-labelledby="status-title" data-state="unknown">
+        <div class="status-art" aria-hidden="true"><img class="brand-light" src="brand.svg" width="108" height="108" alt=""><img class="brand-dark" src="brand-dark.svg" width="108" height="108" alt=""></div>
+        <div class="status-content">
+          <p id="status-title" class="eyebrow">MAC STATUS</p>
+          <h2 id="state">Unknown</h2>
+          <p id="explanation" class="muted">No verified status observation is available.</p>
+          <button id="unlock" type="button" hidden disabled>Unlock FileVault</button>
+        </div>
+        <div class="connection-bar"><span id="last-checked" class="last-checked">No recent observation</span></div>
+      </section>
       <div id="checks-top">
       <details id="connection-checks" class="connectivity-card diagnostic-card" aria-labelledby="connectivity-title" open>
         <summary id="connectivity-title">Connection checks</summary>
@@ -64,16 +71,6 @@
         </div>
       </details>
       </div>
-      <section id="status-card" class="recovery-card" aria-labelledby="status-title" data-state="unknown">
-        <div class="status-art" aria-hidden="true"><img class="brand-light" src="brand.svg" width="108" height="108" alt=""><img class="brand-dark" src="brand-dark.svg" width="108" height="108" alt=""></div>
-        <div class="status-content">
-          <p id="status-title" class="eyebrow">MAC STATUS</p>
-          <h2 id="state">Unknown</h2>
-          <p id="explanation" class="muted">No verified status observation is available.</p>
-          <button id="unlock" type="button" hidden disabled>Unlock FileVault</button>
-        </div>
-        <div class="connection-bar"><span class="connection-dot" aria-hidden="true"></span><span id="service-status">Connecting</span><span id="last-checked" class="last-checked">No recent observation</span></div>
-      </section>
       <div id="manual-top">
       <details id="manual-unlock" class="manual-card diagnostic-card" aria-labelledby="manual-title" open>
         <summary id="manual-title">Manual SSH unlock</summary>
@@ -99,11 +96,14 @@
       </div>
       <div id="diagnostics-bottom" aria-label="Recovery tools and diagnostics"></div>
     </main>
-    <dialog id="recovery" aria-labelledby="recovery-title">
+    <dialog id="recovery" class="dialog-panel" aria-labelledby="recovery-title">
       <form id="recovery-form" autocomplete="off">
+        <div class="dialog-heading"><div>
         <p class="eyebrow">ONE-TIME RECOVERY</p>
         <h2 id="recovery-title">Unlock FileVault</h2>
         <p id="attempt-help" class="muted">Enter the password for this attempt. The field clears as soon as you submit.</p>
+        </div></div>
+        <div class="dialog-body">
         <div id="recovery-credentials">
         <div id="manual-details" hidden>
           <dl class="target-details"><div><dt>SSH account</dt><dd id="manual-target"></dd></div><div><dt>Server fingerprint</dt><dd id="manual-key"></dd></div></dl>
@@ -116,17 +116,21 @@
           <label class="confirmation"><input id="manual-confirm" type="checkbox">I confirm this target and one SSH password attempt.</label>
         </div>
         <label for="password">Password</label>
-        <input id="password" type="password" autocomplete="off"
+        <input id="password" type="password" autocomplete="off" aria-describedby="password-help"
           spellcheck="false" autocapitalize="none" maxlength="1024" required>
         </div>
+        <div id="dialog-activity" hidden><h3>SSH activity</h3><ol id="dialog-log" class="activity-log" aria-label="SSH diagnostics"></ol></div>
+        <p id="password-help" class="field-help">For a new server, trust its fingerprint before entering a password.</p>
+        </div>
+        <div class="dialog-footer">
+        <p id="recovery-status" role="status" aria-live="polite"></p>
         <div class="actions">
           <button type="button" id="cancel-recovery" class="quiet">Cancel</button>
           <button type="submit" id="submit-recovery">Unlock</button>
         </div>
-        <p id="recovery-status" role="status" aria-live="polite"></p>
-        <div id="dialog-activity" hidden><h3>SSH activity</h3><ol id="dialog-log" class="activity-log" aria-label="SSH diagnostics"></ol></div>
+        </div>
       </form>
     </dialog>
-    <footer class="app-footer"><p>FileVault <span id="app-version" class="app-version"></span></p><a class="source-link" href="https://github.com/jessfraz/ha-filevault" target="_blank" rel="noopener noreferrer">Source code <span aria-hidden="true">↗</span></a></footer>
+    <footer class="app-footer" id="app-footer"></footer>
   </body>
 </html>

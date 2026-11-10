@@ -47,7 +47,7 @@ jobs:
           persist-credentials: false
       - run: scripts/check-public-tree
       - run: scripts/check-release-version
-      - run: bash -n scripts/container-smoke.sh
+      - run: bash -n scripts/container-smoke.sh scripts/private-data-smoke.sh
       - run: sh -n docker-entrypoint.sh
       - run: node --check web/app.js
       - run: node tests_web/policy.mjs

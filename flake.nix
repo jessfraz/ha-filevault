@@ -45,7 +45,13 @@
             ./src
           ];
         };
-        cargoLock.lockFile = ./Cargo.lock;
+        cargoLock = {
+          lockFile = ./Cargo.lock;
+          outputHashes = {
+            "ha-app-ui-0.1.1" = "sha256-+dmnGRq9mQH3fiIFK6jNo9xfVDCVGDQ11kN8AxweeaI=";
+            "sqlx-0.9.0" = "sha256-kLvUfUy6vmL9LYU7nzHv+iB6cIJm2CjDf9Yo6wpWrWg=";
+          };
+        };
         cargoBuildFlags = ["--package" "ha-filevault"];
         cargoTestFlags = ["--package" "ha-filevault"];
         # Real-process HTTP fixtures need loopback access inside Darwin's sandbox.
@@ -78,6 +84,7 @@
           cmake
           pkg-config
           jq
+          nodejs_22
           just
           actionlint
           shellcheck
