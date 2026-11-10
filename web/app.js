@@ -2,6 +2,11 @@ import { presentation, connectionChecksPassed, CHECK_FRESHNESS_SECONDS } from ".
 import { submitOnce } from "./recovery.js";
 
 const byId = (id) => document.getElementById(id);
+function notice(message, error = false) {
+  const node = byId("notice");
+  node.textContent = message;
+  node.className = error ? "notice error" : "notice";
+}
 const unlock = byId("unlock");
 const manual = byId("manual-ssh");
 const dialog = byId("recovery");
@@ -74,7 +79,7 @@ function renderAvailability() {
     ? "SSH cooldown is over. An SSH operation is still running; wait for it to finish."
     : "SSH cooldown is over. You can connect again now.";
   if (cooldownEnded && (byId("notice").textContent === connectionErrors.cooldown
-      || byId("notice").textContent.startsWith("SSH cooldown is over."))) byId("notice").textContent = endedMessage;
+      || byId("notice").textContent.startsWith("SSH cooldown is over."))) notice(endedMessage);
   if (cooldownEnded && (localStage === connectionErrors.cooldown || localStage?.startsWith("SSH cooldown is over."))) {
     localStage = endedMessage;
     renderActivity();
@@ -155,7 +160,7 @@ async function loadRecovery() {
     if (next === null && activity?.active && !report.busy) {
       activity = {...activity, active:false, outcome:"unconfirmed"};
       localStage = "SSH activity is no longer available. FileVault may have restarted. The previous attempt's result is unconfirmed; no retry was made.";
-      byId("notice").textContent = localStage;
+      notice(localStage, true);
       await refresh();
     } else if (next) {
       if (next.active && !activity?.active) {
@@ -167,7 +172,7 @@ async function loadRecovery() {
     }
     if (completed && !pending && !preparation) {
       localStage = null;
-      byId("notice").textContent = outcomeNotices[next.outcome];
+      notice(outcomeNotices[next.outcome], ["rejected", "timed_out", "unconfirmed", "unknown"].includes(next.outcome));
       await refresh();
     }
     renderAvailability();
@@ -227,6 +232,9 @@ function placeChecks() {
   const freshFailure = !checkAbort && age !== null && age >= 0 && age < CHECK_FRESHNESS_SECONDS && !passed;
   placeDiagnostic("connection-checks", "checks-top", macRunning && !checkFailed && !freshFailure);
   byId("connection-checks").dataset.checks = passed ? "passed" : "attention";
+  const stale = lastRun !== null && (lastRun.state !== "complete" || age === null || age >= CHECK_FRESHNESS_SECONDS || age < 0);
+  byId("connectivity-results").dataset.stale = String(stale);
+  byId("connectivity-status").dataset.stale = String(stale);
   if (!checkFailed && age !== null) {
     if (age >= CHECK_FRESHNESS_SECONDS || age < 0) {
       byId("connectivity-status").textContent = `Saved check from ${dateLabel(lastRun.finished_at)} is stale. Check again for current connection results. Saved results do not establish Running.`;
@@ -515,14 +523,16 @@ async function refresh() {
     const report = await response.json();
     if (current !== epoch || abort.signal.aborted) return;
     render(report);
-    byId("service-status").textContent = "App connected";
+    byId("service-status").textContent = "Status service connected";
+    byId("service-status").dataset.kind = "ok";
     byId("last-checked").textContent = `Checked ${new Date().toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})}`;
   } catch {
     if (current !== epoch) return;
     render(null);
-    byId("service-status").textContent = "App disconnected";
+    byId("service-status").textContent = "Status service unavailable";
+    byId("service-status").dataset.kind = "error";
     byId("last-checked").textContent = "No recent observation";
-    if (!byId("notice").textContent) byId("notice").textContent = "Status unavailable. Manual SSH remains available when configured.";
+    if (!byId("notice").textContent) notice("Status unavailable. Manual SSH remains available when configured.", true);
   } finally {
     await capabilities;
     clearTimeout(timer);
@@ -552,7 +562,7 @@ async function prepare(selectedMode) {
   renderAvailability();
   activity = null;
   localStage = "Connecting to the Mac's SSH server… No password has been sent.";
-  byId("notice").textContent = "";
+  notice("");
   renderActivity();
   buttons();
   scheduleRecovery();
@@ -597,6 +607,7 @@ async function prepare(selectedMode) {
     byId("attempt-help").textContent = selectedMode === "manual"
       ? "Send one password login to this Mac. Then watch authentication and startup checks here."
       : "Enter the password for this attempt. The field clears as soon as you submit.";
+    byId("password-help").hidden = selectedMode !== "manual";
     byId("submit-recovery").textContent = selectedMode === "manual" ? "Send one SSH attempt" : "Unlock";
     byId("submit-recovery").disabled = selectedMode === "manual";
     byId("recovery-status").textContent = "";
@@ -611,7 +622,7 @@ async function prepare(selectedMode) {
         ? "The SSH connection timed out. No password was sent. Check the Mac's LAN connection and try again."
         : error instanceof ConnectionFailure ? error.message
           : "The SSH connection could not be prepared. Check the Mac's LAN address and try again. No password was sent.";
-      byId("notice").textContent = localStage;
+      notice(localStage, true);
       renderActivity();
       await loadRecovery();
     }
@@ -658,7 +669,7 @@ byId("trust-host").addEventListener("click", async () => {
     password.focus();
   } catch {
     clearGrant();
-    byId("notice").textContent = "Server identity confirmation did not complete. Connect again explicitly; no password was sent.";
+    notice("Server identity confirmation did not complete. Connect again explicitly; no password was sent.", true);
   } finally {
     clearTimeout(timer);
     pending = false;
@@ -670,7 +681,7 @@ byId("recovery-form").addEventListener("submit", async (event) => {
   if (!nonce || pending || !mode) { password.value = ""; return; }
   if (recoveryBlocked()) {
     clearGrant();
-    byId("notice").textContent = connectionErrors[recoveryBusy ? "busy" : "cooldown"];
+    notice(connectionErrors[recoveryBusy ? "busy" : "cooldown"], true);
     return;
   }
   if (mode === "manual" && (!confirmation.checked || !hostTrusted)) {
@@ -702,7 +713,7 @@ byId("recovery-form").addEventListener("submit", async (event) => {
   clearGrant();
   confirmation.disabled = false;
   localStage = outcomeNotices[outcome] || connectionErrors[outcome];
-  byId("notice").textContent = localStage;
+  notice(localStage, Object.hasOwn(connectionErrors, outcome) || ["rejected", "timed_out", "unconfirmed", "unknown"].includes(outcome));
   renderActivity();
   await Promise.allSettled([loadRecovery(), refresh()]);
 });

@@ -717,6 +717,24 @@ async fn script_recovery(r: RequestContext<Arc<Context>>) -> Result<Response<Bod
     )
 }
 
+#[endpoint {method=GET,path="/app-kit.js",tags=["web"]}]
+async fn kit_script(r: RequestContext<Arc<Context>>) -> Result<Response<Body>, HttpError> {
+    web_access(&r)?;
+    content(ha_app_ui::SCRIPT.into(), "text/javascript; charset=utf-8")
+}
+#[endpoint {method=GET,path="/app-kit.css",tags=["web"]}]
+async fn kit_style(r: RequestContext<Arc<Context>>) -> Result<Response<Body>, HttpError> {
+    web_access(&r)?;
+    content(ha_app_ui::STYLESHEET.into(), "text/css; charset=utf-8")
+}
+#[endpoint {method=GET,path="/shell.js",tags=["web"]}]
+async fn shell_script(r: RequestContext<Arc<Context>>) -> Result<Response<Body>, HttpError> {
+    web_access(&r)?;
+    content(
+        include_str!("../web/shell.js").into(),
+        "text/javascript; charset=utf-8",
+    )
+}
 #[endpoint {method=GET,path="/style.css",tags=["web"]}]
 async fn style(r: RequestContext<Arc<Context>>) -> Result<Response<Body>, HttpError> {
     web_access(&r)?;
@@ -767,6 +785,11 @@ pub fn description() -> Result<ApiDescription<Arc<Context>>> {
         .context("register native CLI attempt")?;
     api.register(index).context("register dashboard")?;
     api.register(script).context("register script")?;
+    api.register(kit_script)
+        .context("register shared UI script")?;
+    api.register(kit_style)
+        .context("register shared UI style")?;
+    api.register(shell_script).context("register shell")?;
     api.register(script_policy).context("register UI policy")?;
     api.register(script_recovery)
         .context("register recovery client")?;
