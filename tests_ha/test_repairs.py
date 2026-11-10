@@ -238,3 +238,31 @@ async def test_credential_failure_retains_confirmed_preboot_and_configuration(
         ("filevault", f"{entry.entry_id}_status"),
         ("filevault", f"{entry.entry_id}_configuration"),
     }
+
+
+async def test_version_repair_uses_loaded_release_and_fresh_status(
+    hass: HomeAssistant,
+    entry: FileVaultConfigEntry,
+    aioclient_mock: AiohttpClientMocker,
+) -> None:
+    aioclient_mock.get(URL, json=report("running"))
+    aioclient_mock.get(
+        "http://service.example.invalid/v1/system",
+        json={"credential_role": "integration", "version": "9.8.7"},
+    )
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    mismatch = issue(hass, entry, "version_mismatch")
+    assert mismatch is not None and mismatch.is_fixable
+    assert mismatch.translation_placeholders is not None
+    assert mismatch.translation_placeholders["app_version"] == "9.8.7"
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(
+        URL,
+        json=report("running")
+        | {"version": mismatch.translation_placeholders["integration_version"]},
+    )
+    await entry.runtime_data.async_refresh()
+    assert issue(hass, entry, "version_mismatch") is None
+    assert not hass.services.has_service("filevault", "unlock")

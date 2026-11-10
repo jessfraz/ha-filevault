@@ -5,6 +5,7 @@ from urllib.parse import urlsplit
 
 from aiohttp import ClientSession, ClientTimeout
 
+from ._app_kit.versions import ReleaseVersion
 from .const import MAX_RESPONSE_BYTES, REQUEST_TIMEOUT_SECONDS
 from .models import Status, parse_status
 
@@ -41,8 +42,14 @@ class FileVaultClient:
         self._origin = normalize_backend_url(origin)
         self._token = token
 
-    async def status(self) -> Status:
-        return parse_status(await self._get_json("/v1/status"))
+    async def status(self) -> tuple[Status, ReleaseVersion | None]:
+        data = await self._get_json("/v1/status")
+        status = parse_status(data)
+        try:
+            version = ReleaseVersion.parse(data.get("version"))
+        except ValueError:
+            version = None
+        return status, version
 
     async def system(self) -> dict[str, object]:
         return await self._get_json("/v1/system")

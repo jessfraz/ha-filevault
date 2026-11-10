@@ -32,3 +32,5 @@ known_hosts
 *.pem
 
 ssh_known_hosts
+
+/custom_components/filevault/_app_kit/
