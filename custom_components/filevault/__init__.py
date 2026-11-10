@@ -6,12 +6,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.typing import ConfigType
-from homeassistant.loader import async_get_integration
 
+from ._app_kit.repairs import VersionRepairs
+from ._app_kit.version import LOADED_VERSION
 from .client import FileVaultClient
 from .const import CONF_BACKEND_URL, CONF_TOKEN
 from .coordinator import FileVaultCoordinator
 from .http import FileVaultView
+from .repairs import VERSION_REPAIR
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema("filevault")
 PLATFORMS = [Platform.SENSOR]
@@ -20,8 +22,7 @@ type FileVaultConfigEntry = ConfigEntry[FileVaultCoordinator]
 
 async def async_setup(hass: HomeAssistant, _config: ConfigType) -> bool:
     """Register fixed, authenticated read routes once, across entry reloads."""
-    integration = await async_get_integration(hass, "filevault")
-    hass.http.register_view(FileVaultView(hass, integration.version or "unknown"))
+    hass.http.register_view(FileVaultView(hass, LOADED_VERSION))
     return True
 
 
@@ -34,6 +35,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: FileVaultConfigEntry) ->
     coordinator = FileVaultCoordinator(hass, entry, client)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    coordinator.version_repairs = VersionRepairs(hass, entry, VERSION_REPAIR)
+    coordinator.version_repairs.async_start()
     coordinator.repairs.async_start()
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

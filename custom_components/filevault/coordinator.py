@@ -10,6 +10,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
+from ._app_kit.repairs import VersionRepairs
 from .client import FileVaultClient, InvalidAuth
 from .const import DOMAIN
 from .models import Status
@@ -31,11 +32,14 @@ class FileVaultCoordinator(DataUpdateCoordinator[Status]):
         self.client = client
         self.last_success_at: datetime | None = None
         self.repairs = FileVaultRepairs(hass, entry, self)
+        self.version_repairs: VersionRepairs | None = None
 
     async def _async_update_data(self) -> Status:
         try:
-            result = await self.client.status()
+            result, version = await self.client.status()
             self.last_success_at = dt_util.utcnow()
+            if self.version_repairs is not None and version is not None:
+                self.version_repairs.async_report(version)
             return result
         except InvalidAuth as err:
             self.repairs.async_auth_failed()

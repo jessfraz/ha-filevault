@@ -6,8 +6,8 @@ import hashlib
 import json
 import struct
 import subprocess
+import sys
 import tomllib
-import zipfile
 from pathlib import Path
 
 root = Path(__file__).resolve().parents[1]
@@ -63,21 +63,12 @@ subprocess.run(
     cwd=root,
     check=True,
 )
-integration = output / f"filevault-integration-{version}.zip"
-paths = (
-    git("ls-files", "-z", "custom_components/filevault")
-    .decode()
-    .strip("\0")
-    .split("\0")
+subprocess.run(
+    [sys.executable, str(root / "scripts/build-integration"), "--output", str(output)],
+    cwd=root,
+    check=True,
 )
-with zipfile.ZipFile(integration, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-    for path in sorted(paths + ["LICENSE"]):
-        if not path or path.startswith("/") or ".." in Path(path).parts:
-            raise SystemExit("Invalid archive member")
-        info = zipfile.ZipInfo(path, date_time=(2020, 1, 1, 0, 0, 0))
-        info.compress_type = zipfile.ZIP_DEFLATED
-        info.external_attr = 0o100644 << 16
-        archive.writestr(info, git("show", "HEAD:" + path))
+integration = output / "filevault.zip"
 provenance = output / "SOURCE.json"
 provenance.write_text(
     json.dumps(

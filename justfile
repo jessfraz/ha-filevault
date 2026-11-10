@@ -15,6 +15,7 @@ rust:
     cargo test --locked --workspace --all-features
 
 ha:
+    uv run --frozen python scripts/build-integration
     uv sync --frozen
     uv run --frozen ruff check custom_components tests_ha scripts/build-release-artifacts scripts/render-brand
     uv run --frozen ruff format --check custom_components tests_ha scripts/build-release-artifacts scripts/render-brand

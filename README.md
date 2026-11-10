@@ -433,12 +433,11 @@ and Maintenance. No sibling assets are modified.
 After committing a reviewed candidate, package it with:
 
 ```sh
-scripts/build-release-artifacts --output /tmp/filevault-release
+uv run --frozen python scripts/build-release-artifacts --output /tmp/filevault-release
 ```
 
-The source archive, integration ZIP, provenance, and SHA256SUMS contain
-committed
-public source only. Image publication requires an approved matching version tag
+Attach `filevault.zip` to the GitHub release before publishing. The source
+archive, integration ZIP, provenance, and SHA256SUMS contain public release files. Image publication requires an approved matching version tag
 and the release gate. No deployment, password attempt, or power cycle is
 performed by publication.
 
