@@ -1,6 +1,6 @@
 [package]
 name = "filevault"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2024"
 license = "MIT"
 description = "FileVault recovery status for Home Assistant"
@@ -11,7 +11,7 @@ default-members = ["."]
 resolver = "3"
 
 [dependencies]
-ha-app-ui = { git = "https://github.com/jessfraz/ha-app-kit", rev = "a7b09c84ee35bf7c372dfcdc8614a0d48399af1c" }
+ha-app-ui = { git = "https://github.com/jessfraz/ha-app-kit", tag = "v0.1.2" }
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 dropshot = "0.18"
