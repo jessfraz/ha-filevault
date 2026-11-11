@@ -219,11 +219,8 @@ Add this repository as a HACS custom repository of type Integration. This is
 which runs inside HA Core; review that trust boundary separately. App ingress
 can be used without it. Coordinate any required Core restart.
 
-The app and integration use identical 256-pixel brand icons and matching
-512-pixel assets. The integration bundles `brand/icon.png` and `icon@2x.png`;
-the HA app includes `icon.png` and `logo.png`. The standard app sidebar uses
-its matching Material Design vault icon. Packaging checks enforce identical
-PNG assets and dimensions.
+The Home Assistant App and Marketplace icons use the sidebar's Material
+Design vault glyph. Packaging checks the images against the locked App Kit.
 
 The integration confirms Supervisor discovery, validates the integration role
 through `/v1/system`, rejects owner credentials and redirects, and stores only
@@ -424,11 +421,6 @@ reference tools. Run `just check`, `just security`, and `just container`.
 pytest, Rust tests/lints, browser checks, and native amd64/arm64 container
 smoke.
 All SSH tests use ephemeral loopback peers and synthetic credentials.
-
-With librsvg installed, run `scripts/render-brand` to regenerate transparent
-light/dark integration PNGs and matching app icon/logo from `web/brand.svg`
-and `web/brand-dark.svg`. Flat outlines and neutral fills match Shipments
-and Maintenance. No sibling assets are modified.
 
 After committing a reviewed candidate, package it with:
 
