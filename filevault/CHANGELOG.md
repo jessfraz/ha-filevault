@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.11
+
+- Keep the one-click version repair usable when an older app prevents
+  the integration from starting.
+
 ## 0.1.10
 
 - Show specific version repair failures and allow retrying the version check.

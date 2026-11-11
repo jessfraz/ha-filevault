@@ -9,12 +9,14 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.event import async_track_time_interval
 
 from ._app_kit.repairs import VersionRepairSpec, create_version_fix_flow
 from ._app_kit.version import LOADED_VERSION
 from ._app_kit.versions import ReleaseVersion
-from .const import CONF_ADDON_SLUG, DOMAIN
+from .client import FileVaultClient
+from .const import CONF_ADDON_SLUG, CONF_BACKEND_URL, CONF_TOKEN, DOMAIN
 from .health import status_snapshot
 
 if TYPE_CHECKING:
@@ -129,10 +131,14 @@ class FileVaultRepairs:
 
 
 async def _async_probe_version(
-    _hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: ConfigEntry
 ) -> ReleaseVersion:
-    runtime: FileVaultCoordinator = entry.runtime_data
-    value = await runtime.client.system()
+    client = FileVaultClient(
+        async_get_clientsession(hass),
+        entry.data[CONF_BACKEND_URL],
+        entry.data[CONF_TOKEN],
+    )
+    value = await client.system()
     if value.get("credential_role") != "integration":
         raise ValueError("Cannot verify the FileVault version")
     return ReleaseVersion.parse(value.get("version"))
