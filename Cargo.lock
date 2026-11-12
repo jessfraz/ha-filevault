@@ -965,7 +965,7 @@ checksum = "64cd1e32ddd350061ae6edb1b082d7c54915b5c672c389143b9a63403a109f24"
 
 [[package]]
 name = "filevault"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anyhow",
  "clap",
@@ -1234,17 +1234,17 @@ dependencies = [
 
 [[package]]
 name = "ha-app-kit-ha"
-version = "0.1.6"
-source = "git+https://github.com/jessfraz/ha-app-kit?tag=v0.1.6#22f15dd0728c15c57d29820e46d237dbdf0de45c"
+version = "0.1.7"
+source = "git+https://github.com/jessfraz/ha-app-kit?tag=v0.1.7#222dcaa9887243d106ecc0e7490e18304ee19a63"
 
 [[package]]
 name = "ha-app-ui"
-version = "0.1.6"
-source = "git+https://github.com/jessfraz/ha-app-kit?tag=v0.1.6#22f15dd0728c15c57d29820e46d237dbdf0de45c"
+version = "0.1.7"
+source = "git+https://github.com/jessfraz/ha-app-kit?tag=v0.1.7#222dcaa9887243d106ecc0e7490e18304ee19a63"
 
 [[package]]
 name = "ha-filevault"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "clap",
  "futures-util",
