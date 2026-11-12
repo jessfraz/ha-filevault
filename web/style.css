@@ -36,11 +36,11 @@ h1, h2, h3 { color: inherit; }
 .last-checked { margin-left: auto; font: 10px var(--mono); }
 .manual-card { padding: 25px 28px; margin-top: 20px; border: 1px solid var(--blue-line); border-radius: 12px; background: var(--paper); }
 .manual-card .eyebrow { color: var(--blue-ink); margin-bottom: 8px; }
-.manual-content { display: flex; align-items: center; justify-content: space-between; gap: 28px; }
-.manual-card .muted { margin: 0; max-width: 540px; }
+.manual-content { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 24px; }
+.manual-card .muted { min-width: 0; margin: 0; max-width: 540px; }
 .manual-card button { flex-shrink: 0; }
 .field-help { font-size: 12px; line-height: 1.7; color: var(--muted); margin: 10px 0 0; }
-.recovery-notes { display: grid; grid-template-columns: 1fr 1fr; gap: 36px; padding: 30px 4px; }
+.recovery-notes { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 32px; padding: 30px 4px; }
 .recovery-note { padding-left: 30px; position: relative; }
 .note-number { position: absolute; left: 0; top: 1px; color: var(--muted); font: 10px var(--mono); }
 .recovery-note h3 { font-size: 13px; font-weight: 600; margin: 0 0 9px; }
@@ -102,7 +102,7 @@ input[type="password"] { width: 100%; }
 #host-trust { padding: 0 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
 
 
-.profile-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; padding: 20px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-bottom: 24px; }
+.profile-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; padding: 20px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin-bottom: 24px; }
 .profile-summary h2 { margin: 4px 0 8px; font-size: 17px; }
 .profile-summary p { margin-bottom: 0; }
 .profile-summary dl { margin: 0; display: grid; gap: 12px; }
