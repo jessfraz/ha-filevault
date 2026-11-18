@@ -8,10 +8,10 @@ dependencies = []
 
 [dependency-groups]
 dev = [
-  "pytest-homeassistant==2026.11.0",
-  "aiohasupervisor==0.10.0",
+  "pytest-homeassistant==2026.11.1",
+  "aiohasupervisor==0.11.0",
   "ruff==0.17.4",
-  "ty==0.0.99",
+  "ty==0.0.101",
 ]
 
 [tool.pytest.ini_options]
