@@ -25,7 +25,7 @@ sha2 = "0.11"
 slog = "2"
 # Temporary upstream pin until a registry release permits the SQLite advisory fix.
 sqlx = { version = "0.9", git = "https://github.com/transact-rs/sqlx", rev = "10462fa4414c6c7f1ed1d39bb31678e3b726878c", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
-russh = { version = "=0.65.1", default-features = false, features = ["ring"] }
+russh = { version = "=0.65.2", default-features = false, features = ["ring"] }
 subtle = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "sync", "time", "net"] }
 zeroize = "1"
